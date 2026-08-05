@@ -9,7 +9,27 @@ Cada proyecto define su versión de PHP, Node y MySQL en `.ddev/config.yaml`
 `https://<proyecto>.ddev.site`, SSL confiable en el navegador, Mailpit (correo),
 MinIO (S3 local), Vite con HMR y Xdebug listo para VS Code y PhpStorm.
 
-## ⚡ Restauración después de formatear
+> **¿Primer día con el kit?** 1) corre `bash setup.sh` y vuelve a iniciar
+> sesión; 2) clona tu proyecto y ejecuta dentro
+> [`adopt-laravel`](#adoptar-un-proyecto-existente) — o crea uno nuevo con
+> [`new-laravel`](#crear-un-proyecto-nuevo) —; 3) trabaja con los comandos del
+> [día a día](#día-a-día). Eso es todo.
+
+## Índice
+
+- [Restauración después de formatear](#restauración-después-de-formatear)
+- [Qué instala `setup.sh`](#qué-instala-setupsh)
+- [Crear un proyecto nuevo](#crear-un-proyecto-nuevo)
+- [Adoptar un proyecto existente](#adoptar-un-proyecto-existente)
+- [Día a día](#día-a-día) — [Artisan y colas](#artisan-composer-y-colas) · [npm y Vite](#npm-y-vite-assets) · [MySQL](#base-de-datos-mysql) · [Mailpit](#correo-mailpit) · [MinIO](#archivos-s3-minio) · [logs y shell](#logs-y-shell)
+- [Add-ons: Redis y otros servicios extra](#add-ons-redis-y-otros-servicios-extra)
+- [Cambiar versiones (por proyecto)](#cambiar-versiones-por-proyecto)
+- [Xdebug](#xdebug)
+- [Proyectos Nuxt o solo Node](#proyectos-nuxt-o-solo-node)
+- [Antes de formatear](#antes-de-formatear)
+- [Problemas típicos](#problemas-típicos)
+
+## Restauración después de formatear
 
 ```bash
 sudo apt update && sudo apt install -y git          # 1. git
@@ -65,22 +85,233 @@ un simple `ddev start` también funciona.
 
 ## Día a día
 
+Dos reglas explican casi todo lo que sigue:
+
+1. **Todo con `ddev` delante.** Dentro de la carpeta del proyecto,
+   `ddev artisan`, `ddev composer`, `ddev npm`… ejecutan el comando **dentro
+   del contenedor**, con las versiones de PHP/Node/MySQL que el proyecto
+   declara en `.ddev/config.yaml`. Evita usar el PHP o Node de tu máquina para
+   el proyecto: la gracia es que todo el equipo corra exactamente el mismo
+   entorno.
+2. **Los servicios se llaman por su nombre.** Dentro del entorno, la base de
+   datos es el host `db`, el S3 local es `minio` y Redis (si lo agregas) es
+   `redis`. Por eso en `.env` va `DB_HOST=db` y no `127.0.0.1`. (La excepción
+   es Mailpit, que corre dentro del propio contenedor web →
+   `MAIL_HOST=127.0.0.1`.)
+
+La chuleta:
+
 | Acción | Comando |
 |---|---|
-| Levantar / apagar proyecto | `ddev start` / `ddev stop` (todos: `ddev poweroff`) |
+| Levantar / apagar el proyecto | `ddev start` / `ddev stop` (todos a la vez: `ddev poweroff`) |
+| Abrir la app en el navegador | `ddev launch` |
+| Ver estado, URLs y puertos | `ddev describe` |
 | Artisan / Composer / npm | `ddev artisan ...` / `ddev composer ...` / `ddev npm ...` |
-| Vite con HMR | `ddev npm run dev` → assets en `https://<p>.ddev.site:5173` |
-| Correo capturado (Mailpit) | `ddev launch -m` → `https://<p>.ddev.site:8026` |
-| Consola MinIO | `ddev minio` → `https://<p>.ddev.site:9090` (ddevminio / ddevminio) |
-| MySQL CLI | `ddev mysql` (GUI externa: puerto y credenciales en `ddev describe`) |
-| Xdebug on/off | `ddev xdebug on` / `ddev xdebug off` (apagado por defecto = rápido) |
+| Vite con HMR (mientras desarrollas) | `ddev npm run dev` |
+| Compilar assets | `ddev npm run build` |
+| Consola MySQL | `ddev mysql` |
+| Correo capturado (Mailpit) | `ddev launch -m` |
+| Consola MinIO | `ddev minio` |
+| Redis CLI (si instalaste el add-on) | `ddev redis-cli` |
+| Xdebug on/off | `ddev xdebug on` / `ddev xdebug off` (apagado = más rápido) |
 | Shell dentro del contenedor | `ddev ssh` |
-| Estado / URLs / puertos | `ddev describe` |
-| Compartir por internet | `ddev share` |
+| Compartir tu entorno por internet | `ddev share` |
 
-### Cambiar versiones (por proyecto)
+El detalle de cada tema, a continuación.
+
+### Artisan, Composer y colas
+
+```bash
+ddev artisan migrate                # migraciones pendientes
+ddev artisan migrate:fresh --seed   # recrear la BD desde cero con seeders
+ddev artisan tinker                 # consola interactiva (probar código, mandar correos…)
+ddev artisan test                   # tests (PHPUnit / Pest)
+ddev artisan queue:work             # procesar la cola; déjalo corriendo en otra terminal
+ddev artisan schedule:work          # scheduler en desarrollo: dispara las tareas cada minuto
+ddev artisan optimize:clear         # limpia todos los caches de Laravel ("no veo mis cambios")
+ddev composer require vendor/paquete
+```
+
+### npm y Vite (assets)
+
+¿Por qué `ddev npm` y no `npm` a secas? Porque usa el Node **del contenedor**
+(la versión que declara `.ddev/config.yaml`, igual para todo el equipo) y
+porque el dev server debe correr dentro para que el navegador lo alcance en
+`https://<proyecto>.ddev.site:5173`.
+
+```bash
+ddev npm install        # tras clonar, o cuando cambie package.json
+ddev npm run dev        # dev server de Vite con HMR — déjalo corriendo mientras desarrollas
+ddev npm run build      # compila los assets a public/build (lo que usa la página
+                        # cuando el dev server no está corriendo; lo que va a producción)
+```
+
+### Base de datos (MySQL)
+
+Dentro de los contenedores la BD vive en el host `db`, con base de datos,
+usuario y clave `db` (root: `root` / `root`). El `.env` que dejan
+`new-laravel` / `adopt-laravel` ya apunta ahí:
+
+```dotenv
+DB_CONNECTION=mysql
+DB_HOST=db
+DB_PORT=3306
+DB_DATABASE=db
+DB_USERNAME=db
+DB_PASSWORD=db
+```
+
+```bash
+ddev mysql                               # consola mysql (usuario db)
+ddev mysql -uroot -proot                 # como root
+ddev import-db --file=dump.sql.gz        # acepta .sql, .sql.gz, .zip…
+ddev export-db --file=dump.sql.gz
+ddev snapshot --name antes-del-refactor  # respaldo instantáneo antes de algo arriesgado
+ddev snapshot restore --latest
+```
+
+¿Prefieres una GUI (TablePlus, DBeaver, Workbench…)? Conéctate a `127.0.0.1`
+con el puerto que muestra `ddev describe` (cambia por proyecto), usuario `db`,
+clave `db`.
+
+### Correo (Mailpit)
+
+Ningún correo sale a internet: todo lo que la app envíe queda capturado en
+Mailpit. Ábrelo con `ddev launch -m` (o `https://<proyecto>.ddev.site:8026`).
+
+El `.env` ya queda configurado por `new-laravel` / `adopt-laravel`; si lo
+montas a mano son estas tres líneas (Mailpit escucha dentro del propio
+contenedor web, por eso `127.0.0.1`):
+
+```dotenv
+MAIL_MAILER=smtp
+MAIL_HOST=127.0.0.1
+MAIL_PORT=1025
+```
+
+Prueba rápida:
+
+```bash
+ddev artisan tinker
+>>> Mail::raw('¡Hola!', fn ($m) => $m->to('test@example.com')->subject('Prueba'));
+# → aparece al instante en Mailpit
+```
+
+### Archivos S3 (MinIO)
+
+MinIO es un S3 local: mismo código y misma configuración de Flysystem que
+usarás en producción con AWS. `new-laravel` deja el disco `s3` apuntando a
+MinIO con el bucket ya creado (mismo nombre del proyecto):
+
+```dotenv
+AWS_ACCESS_KEY_ID=ddevminio
+AWS_SECRET_ACCESS_KEY=ddevminio
+AWS_DEFAULT_REGION=us-east-1
+AWS_BUCKET=<proyecto>
+AWS_ENDPOINT=http://minio:10101        # la app habla con el servicio 'minio'
+AWS_USE_PATH_STYLE_ENDPOINT=true
+AWS_URL=https://<proyecto>.ddev.site:10101/<proyecto>   # URL pública (navegador)
+FILESYSTEM_DISK=s3                     # opcional: Storage:: usa MinIO por defecto
+```
+
+```bash
+ddev minio                     # consola web (usuario ddevminio, clave ddevminio)
+ddev mc ls minio/<bucket>      # cliente mc: listar archivos
+ddev mc mb minio/otro-bucket   # crear otro bucket
+```
+
+Si adoptaste un proyecto que no trae MinIO:
+`ddev add-on get ddev/ddev-minio && ddev restart`, agrega el bloque de arriba
+al `.env`, crea el bucket (`ddev mc mb minio/<bucket>`) y, si falta, instala el
+driver: `ddev composer require league/flysystem-aws-s3-v3`.
+
+### Logs y shell
+
+```bash
+ddev logs -f                                  # logs de nginx/php (contenedor web)
+ddev logs -s db                               # logs de MySQL
+ddev exec tail -f storage/logs/laravel.log    # el log de Laravel
+ddev ssh                                      # shell interactiva dentro del contenedor
+ddev exec <comando>                           # ejecutar algo dentro sin entrar
+```
+
+## Add-ons: Redis y otros servicios extra
+
+¿Tu proyecto necesita Redis, Elasticsearch, MongoDB…? En DDEV cada servicio
+extra es un **add-on** que se instala con un comando. Los add-ons copian
+archivos dentro de `.ddev/` — **commitéalos**: quien clone el proyecto tendrá
+el servicio con solo `ddev start` (así instala MinIO este kit).
+
+```bash
+ddev add-on list                 # add-ons oficiales
+ddev add-on list --all           # + los de la comunidad
+ddev add-on list --installed     # los instalados en este proyecto
+ddev add-on get ddev/ddev-redis  # instalar uno (después: ddev restart)
+ddev add-on remove redis         # quitarlo
+```
+
+La configuración en `.env` sigue siempre el mismo patrón: el host es **el
+nombre del servicio** (`redis`, `memcached`, `elasticsearch`…) y en local no
+hay contraseñas. `ddev describe` lista todos los servicios activos del
+proyecto.
+
+### Redis paso a paso (cache, sesiones y colas)
+
+**1. Instala el add-on** (una sola vez por proyecto; commitea los archivos que
+crea en `.ddev/`):
+
+```bash
+ddev add-on get ddev/ddev-redis
+ddev restart
+```
+
+**2. Configura `.env`.** Las tres primeras líneas conectan Laravel con Redis;
+las otras tres deciden qué características lo usan — activa solo las que
+necesites:
+
+```dotenv
+REDIS_CLIENT=phpredis   # la extensión phpredis ya viene en el contenedor de DDEV
+REDIS_HOST=redis        # el add-on crea el servicio 'redis'
+REDIS_PORT=6379
+
+CACHE_STORE=redis       # cache   (en Laravel ≤ 10 la variable es CACHE_DRIVER)
+SESSION_DRIVER=redis    # sesiones
+QUEUE_CONNECTION=redis  # colas → se procesan con: ddev artisan queue:work
+```
+
+**3. Comprueba que funciona:**
+
+```bash
+ddev redis-cli ping     # → PONG
+ddev artisan tinker
+>>> Cache::put('saludo', 'hola'); Cache::get('saludo');   # → "hola"
+```
+
+Comandos útiles: `ddev redis-cli` (consola), `ddev redis-cli monitor` (ver en
+vivo qué guarda tu app), `ddev redis-cli flushall` (vaciar todo).
+
+### Otros add-ons útiles
+
+| Add-on | Servicio | Típico en Laravel |
+|---|---|---|
+| `ddev/ddev-redis` | Redis | cache, sesiones, colas, Horizon |
+| `ddev/ddev-memcached` | Memcached | cache |
+| `ddev/ddev-elasticsearch` | Elasticsearch | búsqueda (Scout) |
+| `ddev/ddev-mongo` | MongoDB | base de datos de documentos |
+| `ddev/ddev-phpmyadmin` | phpMyAdmin | GUI web para MySQL: `ddev phpmyadmin` |
+| `ddev/ddev-adminer` | Adminer | GUI web ligera para la BD: `ddev adminer` |
+| `ddev/ddev-cron` | cron | cron dentro del contenedor web (para `schedule:run`) |
+| `ddev/ddev-minio` | MinIO | S3 local (este kit ya lo instala) |
+
+Cada add-on documenta sus detalles en su repo de GitHub
+(`https://github.com/<owner>/<repo>`). ¿Buscas otro (Meilisearch, RabbitMQ…)?
+`ddev add-on list --all | grep -i <nombre>`.
+
+## Cambiar versiones (por proyecto)
 
 Edita `.ddev/config.yaml` → `php_version`, `nodejs_version` → `ddev restart`.
+En general, cualquier cambio dentro de `.ddev/` (versiones, add-ons, puertos)
+se aplica con `ddev restart`.
 
 ⚠ Cambiar `database` (motor o versión) exige borrar los datos del proyecto:
 `ddev export-db --file=antes.sql.gz && ddev delete -y && ddev start`.
@@ -98,15 +329,7 @@ Activa con `ddev xdebug on` y luego:
 
 Puerto 9003 en ambos IDEs. Apágalo al terminar: `ddev xdebug off`.
 
-## MinIO como S3 de Laravel
-
-`new-laravel` deja el disco `s3` apuntando a MinIO con el bucket creado:
-
-- Interno (la app): `AWS_ENDPOINT=http://minio:10101`, path-style activado.
-- Público (navegador): `https://<proyecto>.ddev.site:10101/<bucket>/...`
-- Para usarlo por defecto: `FILESYSTEM_DISK=s3` en `.env`.
-
-## Proyectos Nuxt / solo Node
+## Proyectos Nuxt o solo Node
 
 Un Nuxt puro no necesita DDEV: con el Node de nvm basta (`npm run dev`).
 Si quieres dominio + SSL también ahí, DDEV soporta proyectos Node
@@ -127,6 +350,10 @@ Y respalda también `~/.ssh`, `~/.gitconfig`, y haz push de todos tus repos
   (grupo docker).
 - **Puerto 80/443 ocupado al `ddev start`** → `sudo systemctl disable --now apache2`
   (o el nginx local que estorbe).
+- **Instalaste un add-on y el servicio no aparece** → `ddev restart` y
+  revísalo en `ddev describe`.
+- **"No veo mis cambios" (config, rutas o vistas cacheadas)** →
+  `ddev artisan optimize:clear`.
 - **Docker aún no publica para tu Ubuntu nuevo** → `DOCKER_CODENAME=noble bash setup.sh`.
 - **Sin internet `*.ddev.site` no resuelve** → DDEV cae a `/etc/hosts`
   automáticamente (pedirá sudo al hacer `ddev start`).
