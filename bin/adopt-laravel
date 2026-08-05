@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+#
+# adopt-laravel — Configura DDEV en un proyecto Laravel EXISTENTE (recién clonado).
+# Se corre DENTRO de la carpeta del proyecto:
+#
+#   cd mi-proyecto && adopt-laravel [version-php] [version-node] [version-mysql]
+#
+# Si el proyecto ya trae .ddev/ versionado, lo respeta y solo levanta el entorno.
+set -euo pipefail
+
+RAIZ=$(cd -- "$(dirname -- "$0")/.." && pwd)
+PHP_VERSION=${1:-8.4}
+NODE_VERSION=${2:-22}
+MYSQL_VERSION=${3:-8.0}
+
+if [ ! -f artisan ]; then
+  echo "Aquí no hay un proyecto Laravel (no encuentro 'artisan')."
+  exit 1
+fi
+NOMBRE=$(basename "$PWD")
+
+if [ ! -f .ddev/config.yaml ]; then
+  echo "==> Configurando DDEV (PHP $PHP_VERSION, Node $NODE_VERSION, MySQL $MYSQL_VERSION)"
+  ddev config --project-type=laravel --docroot=public \
+    --php-version="$PHP_VERSION" --nodejs-version="$NODE_VERSION" \
+    --database="mysql:${MYSQL_VERSION}"
+  cat >> .ddev/config.yaml <<'YAML'
+
+web_extra_exposed_ports:
+  - name: vite
+    container_port: 5173
+    http_port: 5172
+    https_port: 5173
+YAML
+  ddev add-on get ddev/ddev-minio
+else
+  echo "==> Este proyecto ya trae .ddev/ versionado; lo uso tal cual."
+fi
+
+ddev start -y
+
+if [ ! -f .env ] && [ -f .env.example ]; then
+  cp .env.example .env
+fi
+
+env_set() {
+  local clave=$1 valor=$2
+  if grep -qE "^#?[[:space:]]*${clave}=" .env; then
+    sed -i -E "s|^#?[[:space:]]*${clave}=.*|${clave}=${valor}|" .env
+  else
+    printf '%s=%s\n' "$clave" "$valor" >> .env
+  fi
+}
+
+env_set APP_URL "https://${NOMBRE}.ddev.site"
+env_set DB_CONNECTION mysql
+env_set DB_HOST db
+env_set DB_PORT 3306
+env_set DB_DATABASE db
+env_set DB_USERNAME db
+env_set DB_PASSWORD db
+env_set MAIL_MAILER smtp
+env_set MAIL_HOST 127.0.0.1
+env_set MAIL_PORT 1025
+# MinIO solo si el add-on está presente en este proyecto
+if [ -f .ddev/docker-compose.minio.yaml ]; then
+  env_set AWS_ACCESS_KEY_ID ddevminio
+  env_set AWS_SECRET_ACCESS_KEY ddevminio
+  env_set AWS_DEFAULT_REGION us-east-1
+  env_set AWS_BUCKET "$NOMBRE"
+  env_set AWS_ENDPOINT "http://minio:10101"
+  env_set AWS_USE_PATH_STYLE_ENDPOINT true
+  env_set AWS_URL "https://${NOMBRE}.ddev.site:10101/${NOMBRE}"
+  ddev mc mb --ignore-existing "minio/${NOMBRE}" || true
+fi
+
+ddev composer install
+if ! grep -qE '^APP_KEY=.+' .env; then
+  ddev artisan key:generate
+fi
+
+mkdir -p .vscode
+if [ ! -f .vscode/launch.json ]; then
+  cp "$RAIZ/templates/vscode-launch.json" .vscode/launch.json
+fi
+
+cat <<FIN
+
+✔ '$NOMBRE' adoptado en DDEV.
+
+   App: https://${NOMBRE}.ddev.site
+
+   Siguientes pasos según tu caso:
+     ddev import-db --file=~/respaldos-ddev/<fecha>/${NOMBRE}.sql.gz   # restaurar BD
+     ddev artisan migrate                                              # o migrar de cero
+     ddev npm install && ddev npm run dev                              # frontend
+
+   Consejo: versiona la carpeta .ddev/ en git para que el equipo (y tu yo
+   post-formateo) levante el entorno solo con 'ddev start'.
+FIN

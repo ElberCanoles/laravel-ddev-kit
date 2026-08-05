@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# backup-projects — Exporta la base de datos y el .env de TODOS los proyectos DDEV
+# registrados en esta máquina. Úsalo antes de formatear.
+#
+# Uso: backup-projects [carpeta-destino]        (default: ~/respaldos-ddev/<fecha>)
+set -euo pipefail
+
+DESTINO=${1:-"$HOME/respaldos-ddev/$(date +%F)"}
+mkdir -p "$DESTINO"
+
+TOTAL=0
+ddev list -j | jq -r '.raw[] | "\(.name)\t\(.approot)"' | while IFS=$'\t' read -r nombre approot; do
+  echo "==> $nombre"
+  (
+    cd "$approot"
+    if ! ddev export-db --file="$DESTINO/${nombre}.sql.gz" 2>/dev/null; then
+      echo "    (proyecto detenido; lo levanto para exportar)"
+      ddev start -y >/dev/null
+      ddev export-db --file="$DESTINO/${nombre}.sql.gz"
+    fi
+    if [ -f .env ]; then
+      cp .env "$DESTINO/${nombre}.env"
+    fi
+  )
+  echo "    ✔ BD y .env respaldados"
+done
+
+echo
+echo "Respaldo completo en: $DESTINO"
+echo "Recuerda respaldar también: ~/.ssh, ~/.gitconfig, y hacer push de tus repos."
