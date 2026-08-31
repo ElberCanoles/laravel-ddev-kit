@@ -49,11 +49,16 @@ ddev composer create-project laravel/laravel
 ddev composer require league/flysystem-aws-s3-v3 "^3.0" --with-all-dependencies
 
 # --- .env --------------------------------------------------------------------
+# Toca solo la PRIMERA coincidencia (las variantes comentadas de referencia se
+# respetan) y evita sed -i, cuya sintaxis difiere entre GNU (Linux) y BSD (macOS).
 env_set() {
   local clave=$1 valor=$2
-  if grep -qE "^#?[[:space:]]*${clave}=" .env; then
-    # sin sed -i: su sintaxis difiere entre GNU (Linux) y BSD (macOS)
-    sed -E "s|^#?[[:space:]]*${clave}=.*|${clave}=${valor}|" .env > .env.tmp && mv .env.tmp .env
+  if grep -qE "^${clave}=" .env; then
+    awk -v k="$clave" -v v="$valor" '!hecho && index($0, k"=") == 1 { print k "=" v; hecho=1; next } { print }' \
+      .env > .env.tmp && mv .env.tmp .env
+  elif grep -qE "^#[[:space:]]*${clave}=" .env; then
+    awk -v k="$clave" -v v="$valor" '!hecho && $0 ~ "^#[[:space:]]*" k "=" { print k "=" v; hecho=1; next } { print }' \
+      .env > .env.tmp && mv .env.tmp .env
   else
     printf '%s=%s\n' "$clave" "$valor" >> .env
   fi
