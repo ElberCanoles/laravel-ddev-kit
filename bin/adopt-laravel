@@ -46,13 +46,19 @@ fi
 env_set() {
   local clave=$1 valor=$2
   if grep -qE "^#?[[:space:]]*${clave}=" .env; then
-    sed -i -E "s|^#?[[:space:]]*${clave}=.*|${clave}=${valor}|" .env
+    # sin sed -i: su sintaxis difiere entre GNU (Linux) y BSD (macOS)
+    sed -E "s|^#?[[:space:]]*${clave}=.*|${clave}=${valor}|" .env > .env.tmp && mv .env.tmp .env
   else
     printf '%s=%s\n' "$clave" "$valor" >> .env
   fi
 }
 
-env_set APP_URL "https://${NOMBRE}.ddev.site"
+# la URL real la sabe DDEV: si 80/443 están ocupados (p. ej. Laravel Valet),
+# el router cae a puertos alternativos y la URL lleva puerto
+URL_APP=$(ddev describe -j 2>/dev/null | jq -r '.raw.primary_url // empty')
+if [ -z "$URL_APP" ]; then URL_APP="https://${NOMBRE}.ddev.site"; fi
+
+env_set APP_URL "$URL_APP"
 env_set DB_CONNECTION mysql
 env_set DB_HOST db
 env_set DB_PORT 3306
@@ -88,7 +94,7 @@ cat <<FIN
 
 ✔ '$NOMBRE' adoptado en DDEV.
 
-   App: https://${NOMBRE}.ddev.site
+   App: ${URL_APP}
 
    Siguientes pasos según tu caso:
      ddev import-db --file=~/respaldos-ddev/<fecha>/${NOMBRE}.sql.gz   # restaurar BD

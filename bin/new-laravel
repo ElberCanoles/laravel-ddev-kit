@@ -52,13 +52,21 @@ ddev composer require league/flysystem-aws-s3-v3 "^3.0" --with-all-dependencies
 env_set() {
   local clave=$1 valor=$2
   if grep -qE "^#?[[:space:]]*${clave}=" .env; then
-    sed -i -E "s|^#?[[:space:]]*${clave}=.*|${clave}=${valor}|" .env
+    # sin sed -i: su sintaxis difiere entre GNU (Linux) y BSD (macOS)
+    sed -E "s|^#?[[:space:]]*${clave}=.*|${clave}=${valor}|" .env > .env.tmp && mv .env.tmp .env
   else
     printf '%s=%s\n' "$clave" "$valor" >> .env
   fi
 }
 
-env_set APP_URL "https://${NOMBRE}.ddev.site"
+# la URL real la sabe DDEV: si 80/443 están ocupados (p. ej. Laravel Valet),
+# el router cae a puertos alternativos y la URL lleva puerto
+URL_APP=$(ddev describe -j 2>/dev/null | jq -r '.raw.primary_url // empty')
+if [ -z "$URL_APP" ]; then URL_APP="https://${NOMBRE}.ddev.site"; fi
+URL_MAILPIT=$(ddev describe -j 2>/dev/null | jq -r '.raw.mailpit_https_url // empty')
+if [ -z "$URL_MAILPIT" ]; then URL_MAILPIT="https://${NOMBRE}.ddev.site:8026"; fi
+
+env_set APP_URL "$URL_APP"
 # Base de datos → contenedor 'db' de DDEV
 env_set DB_CONNECTION mysql
 env_set DB_HOST db
@@ -117,8 +125,8 @@ cat <<FIN
 
 ✔ Proyecto '$NOMBRE' listo.
 
-   App:            https://${NOMBRE}.ddev.site
-   Mailpit:        https://${NOMBRE}.ddev.site:8026     (o: ddev launch -m)
+   App:            ${URL_APP}
+   Mailpit:        ${URL_MAILPIT}     (o: ddev launch -m)
    MinIO consola:  https://${NOMBRE}.ddev.site:9090     (ddevminio / ddevminio)
    MySQL:          ddev mysql   (host 'db', bd/usuario/clave: db)
 

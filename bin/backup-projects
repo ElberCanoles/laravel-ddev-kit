@@ -9,7 +9,6 @@ set -euo pipefail
 DESTINO=${1:-"$HOME/respaldos-ddev/$(date +%F)"}
 mkdir -p "$DESTINO"
 
-TOTAL=0
 ddev list -j | jq -r '.raw[] | "\(.name)\t\(.approot)"' | while IFS=$'\t' read -r nombre approot; do
   echo "==> $nombre"
   (
