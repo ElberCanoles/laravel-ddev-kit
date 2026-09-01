@@ -70,7 +70,14 @@ if xcode-select -p >/dev/null 2>&1; then
 else
   xcode-select --install 2>/dev/null || true
   aviso "Acepta el diálogo de Apple que acaba de abrirse y espera a que termine..."
-  until xcode-select -p >/dev/null 2>&1; do sleep 10; done
+  for _ in $(seq 1 180); do
+    xcode-select -p >/dev/null 2>&1 && break
+    sleep 10
+  done
+  if ! xcode-select -p >/dev/null 2>&1; then
+    aviso "No pude confirmar la instalación de Command Line Tools. Si cancelaste el diálogo, vuelve a correr el script."
+    exit 1
+  fi
   ok "Command Line Tools instaladas"
 fi
 
