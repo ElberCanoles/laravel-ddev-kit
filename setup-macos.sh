@@ -87,9 +87,11 @@ else
   eval "$("$BREW_PREFIX/bin/brew" shellenv)"
   ok "homebrew instalado"
 fi
-if ! grep -q 'brew shellenv' "$HOME/.zprofile" 2>/dev/null; then
-  printf '\neval "$(%s/bin/brew shellenv)"\n' "$BREW_PREFIX" >> "$HOME/.zprofile"
-  ok "brew agregado al PATH (~/.zprofile)"
+PROFILE="$HOME/.zprofile"
+case "${SHELL##*/}" in bash) PROFILE="$HOME/.bash_profile" ;; esac
+if ! grep -q 'brew shellenv' "$PROFILE" 2>/dev/null; then
+  printf '\neval "$(%s/bin/brew shellenv)"\n' "$BREW_PREFIX" >> "$PROFILE"
+  ok "brew agregado al PATH (${PROFILE})"
 fi
 
 # ------------------------------------------------------------------ base
