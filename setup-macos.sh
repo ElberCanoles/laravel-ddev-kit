@@ -108,6 +108,9 @@ if [ -z "$DOCKER_PROVIDER" ]; then
   fi
 fi
 paso "Docker (proveedor: ${DOCKER_PROVIDER})"
+if ! command -v docker >/dev/null 2>&1; then
+  brew install docker
+fi
 if docker info >/dev/null 2>&1; then
   ok "ya hay un Docker funcionando: $(docker --version)"
 else
