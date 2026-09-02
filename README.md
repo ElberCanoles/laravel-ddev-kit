@@ -1,16 +1,17 @@
-# machine-setup — Entorno Laravel reproducible (Ubuntu + DDEV)
+# laravel-ddev-kit — Entorno Laravel reproducible (Ubuntu · macOS + DDEV)
 
-Deja una máquina Ubuntu recién formateada lista para desarrollo Laravel
-profesional en ~15 minutos, con entornos **idénticos y versionados por proyecto**
-gracias a [DDEV](https://ddev.com) sobre Docker.
+Deja una máquina recién formateada — Ubuntu o macOS — lista para desarrollo
+Laravel profesional en ~15 minutos, con entornos **idénticos y versionados por
+proyecto** gracias a [DDEV](https://ddev.com) sobre Docker: aunque en el equipo
+convivan Linux y Mac, todos corren exactamente el mismo entorno.
 
 Cada proyecto define su versión de PHP, Node y MySQL en `.ddev/config.yaml`
 (versionado dentro del repo del proyecto) y obtiene: dominio propio
 `https://<proyecto>.ddev.site`, SSL confiable en el navegador, Mailpit (correo),
 MinIO (S3 local), Vite con HMR y Xdebug listo para VS Code y PhpStorm.
 
-> **¿Primer día con el kit?** 1) corre `bash setup.sh` y vuelve a iniciar
-> sesión; 2) clona tu proyecto y ejecuta dentro
+> **¿Primer día con el kit?** 1) corre `bash setup.sh` (en Ubuntu, cierra
+> sesión y vuelve a entrar al terminar); 2) clona tu proyecto y ejecuta dentro
 > [`adopt-laravel`](#adoptar-un-proyecto-existente) — o crea uno nuevo con
 > [`new-laravel`](#crear-un-proyecto-nuevo) —; 3) trabaja con los comandos del
 > [día a día](#día-a-día). Eso es todo.
@@ -31,35 +32,73 @@ MinIO (S3 local), Vite con HMR y Xdebug listo para VS Code y PhpStorm.
 
 ## Restauración después de formatear
 
+`setup.sh` detecta el sistema operativo y corre el instalador que corresponde
+(`setup-ubuntu.sh` o `setup-macos.sh`); los comandos de abajo sirven igual en
+ambos.
+
+**Ubuntu**
+
 ```bash
 sudo apt update && sudo apt install -y git          # 1. git
-git clone <TU-REMOTO>/machine-setup.git             # 2. este repo
-cd machine-setup && bash setup.sh                   # 3. instalador (pide sudo una vez)
+git clone <TU-REMOTO>/laravel-ddev-kit.git          # 2. este repo
+cd laravel-ddev-kit && bash setup.sh                # 3. instalador (pide sudo una vez)
 # 4. cerrar sesión y volver a entrar (activa el grupo docker)
-# 5. clonar tus proyectos y en cada uno:
+```
+
+**macOS**
+
+```bash
+git clone <TU-REMOTO>/laravel-ddev-kit.git   # 1. este repo (si macOS ofrece instalar
+                                             #    las Command Line Tools, acepta)
+cd laravel-ddev-kit && bash setup.sh         # 2. instalador (instala Homebrew si falta)
+# 3. la primera vez, acepta el asistente de Docker Desktop cuando se abra
+```
+
+**Y en ambos**, para terminar:
+
+```bash
+# clonar tus proyectos y en cada uno:
 ddev start
 ddev import-db --file=~/respaldos-ddev/<fecha>/<proyecto>.sql.gz   # si hay respaldo
 ```
 
-> **Consejo**: sube este repo a un remoto privado para que el paso 2 exista:
-> `gh auth login && gh repo create machine-setup --private --source=. --push`
+> **Consejo**: sube este repo a un remoto privado para que el paso del clone
+> exista: `gh auth login && gh repo create laravel-ddev-kit --private --source=. --push`
 
 ## Qué instala `setup.sh`
 
-| Componente | Detalle |
-|---|---|
-| Docker Engine | repo oficial; detecta el codename y cae al LTS anterior si aún no hay paquetes |
-| DDEV | repo apt oficial (`pkg.ddev.com`), independiente de la versión de Ubuntu |
-| mkcert | CA local → SSL confiable en `https://*.ddev.site` |
-| Node.js LTS | vía nvm (+ corepack habilita yarn/pnpm) para tooling nativo |
-| PHP CLI + Composer | nativos, solo por conveniencia; las versiones "de verdad" van por proyecto en DDEV |
-| GitHub CLI y VS Code | solo si faltan (PhpStorm va por JetBrains Toolbox; avisa si no está) |
-| Extensiones VS Code | Xdebug, Intelephense, Laravel, Vue (Volar), EditorConfig |
-| Ajustes de sistema | más watchers inotify (Vite/HMR en proyectos grandes) |
+| Componente | En Ubuntu | En macOS |
+|---|---|---|
+| Homebrew | — | lo instala si falta (también las Command Line Tools) |
+| Docker | Docker Engine (repo oficial; cae al LTS anterior si aún no hay paquetes) | Docker Desktop — o Colima / OrbStack, ver abajo |
+| DDEV | repo apt oficial (`pkg.ddev.com`) | tap oficial de Homebrew (`ddev/ddev/ddev`) |
+| mkcert → CA local, SSL confiable en `https://*.ddev.site` | apt o binario oficial | Homebrew (+ `nss` para Firefox) |
+| Node.js LTS vía nvm (+ corepack habilita yarn/pnpm) | igual en ambos | ídem |
+| PHP CLI + Composer (conveniencia; las versiones "de verdad" van por proyecto en DDEV) | paquetes apt | `brew install php composer` |
+| GitHub CLI y VS Code, solo si faltan (PhpStorm va por JetBrains Toolbox; avisa si no está) | repos oficiales apt | casks de Homebrew |
+| Extensiones VS Code: Xdebug, Intelephense, Laravel, Vue (Volar), EditorConfig | igual en ambos | ídem |
+| Ajustes de sistema | más watchers inotify (Vite/HMR en proyectos grandes) | no hace falta |
 
 Es **idempotente**: re-córrelo cuando quieras. Toggles: `INSTALL_NATIVE_PHP=0`,
 `INSTALL_GH=0`, `INSTALL_IDES=0`, `INSTALL_VSCODE_EXTS=0`
 (ejemplo: `INSTALL_GH=0 bash setup.sh`). También agrega `bin/` al PATH.
+
+### Docker en macOS: elegir proveedor
+
+En macOS el motor de Docker corre dentro de una VM y hay varias apps que la
+manejan. Si ya tienes una funcionando, el instalador la respeta y no toca nada;
+si tienes una instalada pero apagada, la arranca. Solo si no hay ninguna
+instala la que diga `DOCKER_PROVIDER` (sin variable: Docker Desktop):
+
+| `DOCKER_PROVIDER=` | Qué es |
+|---|---|
+| `docker-desktop` | la app oficial de Docker; gratis para empresas pequeñas (<250 empleados y <10 M USD) |
+| `colima` | libre/open source, por terminal, sin interfaz gráfica |
+| `orbstack` | el más rápido y liviano; de pago para uso comercial |
+
+Ejemplo: `DOCKER_PROVIDER=colima bash setup.sh`. Con Docker Desktop y OrbStack
+la primera vez hay que aceptar su asistente gráfico; el script abre la app y
+espera a que Docker responda.
 
 ## Crear un proyecto nuevo
 
@@ -346,10 +385,23 @@ Y respalda también `~/.ssh`, `~/.gitconfig`, y haz push de todos tus repos
 
 ## Problemas típicos
 
-- **`permission denied ... docker.sock`** → falta re-loguear tras `setup.sh`
-  (grupo docker).
-- **Puerto 80/443 ocupado al `ddev start`** → `sudo systemctl disable --now apache2`
-  (o el nginx local que estorbe).
+- **`permission denied ... docker.sock`** (Ubuntu) → falta re-loguear tras
+  `setup.sh` (grupo docker).
+- **`Cannot connect to the Docker daemon`** (macOS) → abre Docker Desktop u
+  OrbStack, o corre `colima start`, según tu proveedor.
+- **`Operation not permitted` al instalar una app con brew** (macOS) → tu
+  Terminal necesita el permiso **"Gestión de apps"**: Ajustes del Sistema →
+  Privacidad y seguridad → Gestión de apps → actívalo para tu Terminal,
+  reábrelo y re-corre `bash setup.sh` (a `sudo` ese permiso no le basta).
+- **Puerto 80/443 ocupado al `ddev start`** → en Ubuntu:
+  `sudo systemctl disable --now apache2` (o el nginx que estorbe); en macOS:
+  `sudo apachectl stop` si tienes activo el Apache del sistema.
+- **Las URLs salen con puerto raro (`:33001`) o `https://*.ddev.site` muestra un
+  certificado de "Laravel Valet"** (macOS) → Valet tiene tomado
+  `127.0.0.1:80/443`; DDEV lo detecta y se mueve a puertos alternativos, así que
+  todo funciona igual (las URLs reales las imprime `ddev describe`). Para URLs
+  sin puerto: `valet stop` antes de `ddev start` — o desinstala Valet si ya
+  migraste del todo a DDEV.
 - **Instalaste un add-on y el servicio no aparece** → `ddev restart` y
   revísalo en `ddev describe`.
 - **"No veo mis cambios" (config, rutas o vistas cacheadas)** →
