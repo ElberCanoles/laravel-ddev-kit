@@ -312,7 +312,7 @@ cat <<RESUMEN
 
   Instalado: ${INSTALADO}
 
-  Crear proyecto Laravel nuevo:      new-laravel <nombre> [php] [node] [mysql]
+  Crear proyecto Laravel nuevo:      new-laravel <nombre> [--kit vue] [--db postgres]   (más: new-laravel --help)
   Adoptar proyecto existente:        cd proyecto && adopt-laravel
   Respaldar todo antes de formatear: backup-projects   (y después: restore-projects)
   Revisar que todo esté en orden:    kit-doctor

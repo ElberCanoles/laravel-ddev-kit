@@ -139,7 +139,7 @@ hay y cómo deshacerlo:
 | `/etc/sysctl.d/60-dev-inotify.conf` | más watchers de archivos para Vite/HMR | ✓ | — |
 | grupo `docker` | mete a tu usuario para usar Docker sin sudo (equivale a root en la máquina: lo normal en un equipo de desarrollo) | ✓ | — |
 | `~/.nvm/` | nvm y el Node LTS | ✓ | ✓ |
-| `~/.local/bin/` | enlaces a `new-laravel`, `adopt-laravel` y `backup-projects` | ✓ | ✓ |
+| `~/.local/bin/` | enlaces a los helpers de `bin/`: `new-laravel`, `adopt-laravel`, `backup-projects`, `restore-projects` y `kit-doctor` | ✓ | ✓ |
 | `~/.bashrc` o `~/.zshrc` | `~/.local/bin` en el PATH si no estaba; nvm agrega sus propias líneas | ✓ | ✓ |
 | `~/.zprofile` o `~/.bash_profile` | `brew shellenv` | — | ✓ |
 | `~/.gitconfig` | `init.defaultBranch main` | ✓ | ✓ |
@@ -495,7 +495,7 @@ cd laravel-ddev-kit && git pull && bash setup.sh
 **Desinstalar** el kit sin tocar Docker, DDEV ni tus proyectos:
 
 ```bash
-rm ~/.local/bin/new-laravel ~/.local/bin/adopt-laravel ~/.local/bin/backup-projects
+rm ~/.local/bin/{new-laravel,adopt-laravel,backup-projects,restore-projects,kit-doctor}
 rm -rf ~/.laravel-ddev-kit    # logs
 rm -rf laravel-ddev-kit       # el clon
 ```

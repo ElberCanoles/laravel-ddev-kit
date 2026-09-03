@@ -38,7 +38,7 @@ según [SemVer](https://semver.org/lang/es/).
 - Los helpers se instalan como enlaces en `~/.local/bin`, así funcionan con
   cualquier shell sin tocar el PATH (si mueves el clon, re-corre `setup.sh`).
 - Pruebas en `tests/` y CI en GitHub Actions (lint + pruebas + instalación real
-  en contenedores de Debian 12, Debian 13 y Ubuntu 24.04).
+  en contenedores de Debian 12, Debian 13, Ubuntu 24.04 y Ubuntu 26.04).
 - Toggle `INSTALL_DOCKER=0` en ambos instaladores (otro Docker, o CI).
 - LICENSE (MIT), CONTRIBUTING, `.editorconfig`, `.shellcheckrc` y este CHANGELOG.
 - README: "Qué toca en tu sistema" y "Actualizar o desinstalar el kit".
