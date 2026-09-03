@@ -1,0 +1,2 @@
+# Resuelve los 'source=' de los scripts relativos a su propia carpeta (bin/, tests/)
+source-path=SCRIPTDIR

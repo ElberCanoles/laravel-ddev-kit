@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+#
+# restore-projects — Vuelve a levantar los proyectos que guardó backup-projects en una
+# máquina recién formateada: clona el repo si hace falta, configura DDEV con las
+# versiones respaldadas e importa base de datos, .env, storage/app y buckets de MinIO.
+#
+# Uso: restore-projects [carpeta-respaldo] [--en <carpeta>] [--solo <proyecto>] [--personal]
+#      restore-projects                        → el respaldo más reciente de ~/respaldos-ddev/
+#      restore-projects /media/usb/respaldo
+#      restore-projects --en ~/Developer       → dónde dejar los proyectos que haya que clonar
+#                                                (por defecto, la ruta que tenían al respaldar)
+#      restore-projects --solo mi-app          → solo ese proyecto
+#      restore-projects --personal             → además extrae personal.tar.gz en tu HOME,
+#                                                sin pisar archivos que ya existan
+#      restore-projects --help
+#
+# Cada proyecto: si su carpeta no existe la clona del remoto guardado en el respaldo
+# (o avisa si no hay remoto), corre adopt-laravel con las versiones respaldadas e
+# importa todo. Si uno falla sigue con los demás y lo reporta al final (código 1).
+set -euo pipefail
+
+# Puede estar enlazado desde ~/.local/bin: resolver el enlace para encontrar lib/
+ORIGEN=$0
+while [ -L "$ORIGEN" ]; do
+  DIR=$(cd -- "$(dirname -- "$ORIGEN")" && pwd)
+  ORIGEN=$(readlink "$ORIGEN")
+  case $ORIGEN in /*) ;; *) ORIGEN="$DIR/$ORIGEN" ;; esac
+done
+RAIZ=$(cd -- "$(dirname -- "$ORIGEN")/.." && pwd)
+# shellcheck source=../lib/comun.sh
+. "$RAIZ/lib/comun.sh"
+
+RESPALDO=""
+EN=""
+SOLO=""
+PERSONAL=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h | --help)
+      mostrar_ayuda "$0"
+      exit 0
+      ;;
+    --en)
+      EN=${2:?--en necesita una carpeta}
+      shift
+      ;;
+    --solo)
+      SOLO=${2:?--solo necesita el nombre de un proyecto}
+      shift
+      ;;
+    --personal) PERSONAL=1 ;;
+    -*) fallo "Opción desconocida: $1 (mira restore-projects --help)" ;;
+    *) RESPALDO=$1 ;;
+  esac
+  shift
+done
+if [ -z "$RESPALDO" ]; then
+  RESPALDO=$(find "$HOME/respaldos-ddev" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -1 || true)
+  if [ -z "$RESPALDO" ]; then
+    fallo "No encuentro respaldos en ~/respaldos-ddev/. Indica la carpeta: restore-projects /ruta/al/respaldo"
+  fi
+fi
+RESPALDO=${RESPALDO%/}
+if [ ! -d "$RESPALDO" ]; then fallo "No existe la carpeta de respaldo: $RESPALDO"; fi
+requiere ddev docker jq git tar
+docker_responde
+
+# Los proyectos del respaldo: uno por manifiesto <nombre>.json; si un respaldo viejo
+# solo trae <nombre>.sql.gz, también cuenta.
+proyectos() {
+  local f n
+  for f in "$RESPALDO"/*.json "$RESPALDO"/*.sql.gz; do
+    [ -f "$f" ] || continue
+    n=$(basename "$f")
+    n=${n%.json}
+    n=${n%.sql.gz}
+    echo "$n"
+  done | sort -u
+}
+
+# Devuelve 0 si el proyecto quedó levantado con todo importado.
+restaurar() {
+  local nombre=$1 manifiesto="$RESPALDO/$1.json" approot="" remoto="" php="" node="" db=""
+  if [ -f "$manifiesto" ]; then
+    approot=$(jq -r '.approot // empty' "$manifiesto")
+    remoto=$(jq -r '.remoto // empty' "$manifiesto")
+    php=$(jq -r '.ddev.php // empty' "$manifiesto")
+    node=$(jq -r '.ddev.node // empty' "$manifiesto")
+    db=$(jq -r '.ddev.database // empty' "$manifiesto")
+  fi
+  if [ -n "$EN" ]; then approot="$EN/$nombre"; fi
+  if [ -z "$approot" ]; then approot="$PWD/$nombre"; fi
+  # 1. la carpeta del proyecto: la que había, o clonar del remoto
+  if [ ! -d "$approot" ]; then
+    if [ -n "$remoto" ]; then
+      echo "    clonando $remoto → $approot"
+      mkdir -p "$(dirname "$approot")"
+      if ! git clone -q "$remoto" "$approot"; then
+        echo "    ✖ no pude clonar $remoto"
+        return 1
+      fi
+    else
+      echo "    ✖ no existe $approot y el respaldo no guardó el remoto git: clona el proyecto ahí y vuelve a correr"
+      return 1
+    fi
+  fi
+  if [ ! -f "$approot/artisan" ]; then
+    echo "    ✖ $approot no parece un proyecto Laravel (no encuentro artisan)"
+    return 1
+  fi
+  # versiones y motor para adopt-laravel: los del respaldo o los por defecto. Si el
+  # repo trae .ddev/ versionado, adopt lo respeta y estas no se usan.
+  local args=()
+  if [ -n "$php" ] && [ "$php" != "-" ]; then args+=(--php "$php"); fi
+  if [ -n "$node" ] && [ "$node" != "-" ]; then args+=(--node "$node"); fi
+  if [ -n "$db" ] && [ "$db" != "-" ]; then args+=(--db "$db"); fi
+  (
+    cd "$approot" || exit 1
+    # 2. el .env del respaldo, antes de adopt-laravel (que solo ajusta lo de DDEV)
+    if [ -f "$RESPALDO/$nombre.env" ] && [ ! -f .env ]; then
+      cp "$RESPALDO/$nombre.env" .env || exit 1
+      echo "    ✔ .env"
+    fi
+    # 3. DDEV + composer install (adopt-laravel respeta un .ddev/ ya versionado)
+    # ${args[@]+"${args[@]}"}: pasa los argumentos entrecomillados y, si no hay ninguno,
+    # no pasa nada; "${args[@]}" a secas rompe con set -u en el bash 3.2 de macOS
+    "$RAIZ/bin/adopt-laravel" ${args[@]+"${args[@]}"} || exit 1
+    # 4. base de datos
+    if [ -f "$RESPALDO/$nombre.sql.gz" ]; then
+      ddev import-db --file="$RESPALDO/$nombre.sql.gz" || exit 1
+      echo "    ✔ base de datos importada"
+    fi
+    # 5. archivos subidos
+    if [ -f "$RESPALDO/$nombre-storage.tar.gz" ]; then
+      tar xzf "$RESPALDO/$nombre-storage.tar.gz" || exit 1
+      echo "    ✔ storage/app"
+    fi
+    ddev artisan storage:link >/dev/null 2>&1 || true # public/storage no va en git
+    # 6. buckets de MinIO (mc corre en el contenedor minio, que ve .ddev/ en /mnt/ddev_config)
+    if [ -f "$RESPALDO/$nombre-minio.tar.gz" ]; then
+      if [ -f .ddev/docker-compose.minio.yaml ]; then
+        rm -rf .ddev/.kit-minio-restore && mkdir -p .ddev/.kit-minio-restore
+        tar xzf "$RESPALDO/$nombre-minio.tar.gz" -C .ddev/.kit-minio-restore || exit 1
+        local b
+        for b in .ddev/.kit-minio-restore/*/; do
+          [ -d "$b" ] || continue
+          b=$(basename "$b")
+          ddev mc mb --ignore-existing "minio/$b" >/dev/null 2>&1 || true
+          ddev mc mirror --quiet --overwrite "/mnt/ddev_config/.kit-minio-restore/$b" "minio/$b" >/dev/null 2>&1 || exit 1
+        done
+        rm -rf .ddev/.kit-minio-restore
+        echo "    ✔ buckets de MinIO"
+      else
+        echo "    ⚠ el respaldo trae buckets de MinIO pero el proyecto no tiene el add-on (ddev add-on get ddev/ddev-minio); quedan en $RESPALDO/$nombre-minio.tar.gz"
+      fi
+    fi
+  )
+}
+
+FALLIDOS=()
+TOTAL=0
+for nombre in $(proyectos); do
+  if [ -n "$SOLO" ] && [ "$nombre" != "$SOLO" ]; then continue; fi
+  TOTAL=$((TOTAL + 1))
+  echo "==> $nombre"
+  if restaurar "$nombre"; then
+    echo "    ✔ $nombre restaurado"
+  else
+    echo "    ✖ $nombre quedó sin restaurar (o incompleto)"
+    FALLIDOS+=("$nombre")
+  fi
+done
+if [ "$TOTAL" = 0 ]; then
+  if [ -n "$SOLO" ]; then fallo "No hay proyectos que restaurar con nombre '$SOLO' en $RESPALDO"; fi
+  fallo "No hay proyectos que restaurar en $RESPALDO"
+fi
+
+PERSONAL_FALLO=0
+if [ "$PERSONAL" = 1 ]; then
+  echo "==> archivos personales"
+  if [ -f "$RESPALDO/personal.tar.gz" ]; then
+    # se extrae a una carpeta temporal y se copia solo lo que no exista: así un fallo
+    # de tar se nota, y lo que ya tienes (una llave nueva, por ejemplo) no se pisa
+    TMPP=$(mktemp -d "${TMPDIR:-/tmp}/kit-personal.XXXXXX")
+    if tar xzf "$RESPALDO/personal.tar.gz" -C "$TMPP"; then
+      NUEVOS=0
+      SALTADOS=0
+      while IFS= read -r f; do
+        rel=${f#"$TMPP"/}
+        if [ -e "$HOME/$rel" ]; then
+          SALTADOS=$((SALTADOS + 1))
+          continue
+        fi
+        mkdir -p "$(dirname "$HOME/$rel")"
+        if cp -p "$f" "$HOME/$rel"; then NUEVOS=$((NUEVOS + 1)); else PERSONAL_FALLO=1; fi
+      done < <(find "$TMPP" -type f)
+      if [ -d "$HOME/.ssh" ]; then chmod 700 "$HOME/.ssh"; fi
+      echo "    ✔ $NUEVOS archivo(s) restaurados en $HOME; $SALTADOS ya existían y se dejaron como estaban"
+    else
+      echo "    ✖ no pude extraer personal.tar.gz"
+      PERSONAL_FALLO=1
+    fi
+    rm -rf "$TMPP"
+  else
+    echo "    (no hay personal.tar.gz en $RESPALDO)"
+  fi
+fi
+
+echo
+echo "Restaurados $((TOTAL - ${#FALLIDOS[@]})) de $TOTAL proyectos desde $RESPALDO"
+if [ "${#FALLIDOS[@]}" -gt 0 ]; then
+  echo "⚠ Sin restaurar: ${FALLIDOS[*]}. Corrige la causa y vuelve a correr (puedes usar --solo <nombre>)."
+  exit 1
+fi
+if [ "$PERSONAL_FALLO" = 1 ]; then exit 1; fi

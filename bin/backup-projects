@@ -1,30 +1,182 @@
 #!/usr/bin/env bash
 #
-# backup-projects — Exporta la base de datos y el .env de TODOS los proyectos DDEV
-# registrados en esta máquina. Úsalo antes de formatear.
+# backup-projects — Respalda TODOS los proyectos DDEV de esta máquina: base de datos,
+# .env, archivos subidos (storage/app) y buckets de MinIO. Úsalo antes de formatear;
+# restore-projects los vuelve a levantar en la máquina nueva.
 #
-# Uso: backup-projects [carpeta-destino]        (default: ~/respaldos-ddev/<fecha>)
+# Uso: backup-projects [carpeta-destino] [--solo <proyecto>] [--solo-bd] [--personal]
+#      backup-projects                       → ~/respaldos-ddev/<fecha>/
+#      backup-projects /media/usb/respaldo   → mejor a un disco externo o a la nube
+#      backup-projects --personal            → además ~/.ssh, ~/.gitconfig, la sesión de gh,
+#                                              los tokens de Composer y npm y la config
+#                                              global de DDEV (son secretos: tú decides)
+#      backup-projects --solo-bd             → solo base de datos y .env (rápido)
+#      backup-projects --solo mi-app         → un solo proyecto
+#      backup-projects --help
+#
+# Si un proyecto falla (carpeta borrada, no levanta…) sigue con los demás y lo
+# reporta al final; termina con código 1 si alguno quedó sin respaldo.
 set -euo pipefail
 
-DESTINO=${1:-"$HOME/respaldos-ddev/$(date +%F)"}
-mkdir -p "$DESTINO"
+# Puede estar enlazado desde ~/.local/bin: resolver el enlace para encontrar lib/
+ORIGEN=$0
+while [ -L "$ORIGEN" ]; do
+  DIR=$(cd -- "$(dirname -- "$ORIGEN")" && pwd)
+  ORIGEN=$(readlink "$ORIGEN")
+  case $ORIGEN in /*) ;; *) ORIGEN="$DIR/$ORIGEN" ;; esac
+done
+RAIZ=$(cd -- "$(dirname -- "$ORIGEN")/.." && pwd)
+# shellcheck source=../lib/comun.sh
+. "$RAIZ/lib/comun.sh"
+# shellcheck source=../lib/laravel.sh
+. "$RAIZ/lib/laravel.sh"
 
-ddev list -j | jq -r '.raw[] | "\(.name)\t\(.approot)"' | while IFS=$'\t' read -r nombre approot; do
-  echo "==> $nombre"
+DESTINO=""
+SOLO=""
+SOLO_BD=0
+PERSONAL=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h | --help)
+      mostrar_ayuda "$0"
+      exit 0
+      ;;
+    --solo)
+      SOLO=${2:?--solo necesita el nombre de un proyecto}
+      shift
+      ;;
+    --solo-bd) SOLO_BD=1 ;;
+    --personal) PERSONAL=1 ;;
+    -*) fallo "Opción desconocida: $1 (mira backup-projects --help)" ;;
+    *) DESTINO=$1 ;;
+  esac
+  shift
+done
+DESTINO=${DESTINO:-"$HOME/respaldos-ddev/$(date +%F)"}
+
+requiere ddev docker jq tar
+docker_responde
+umask 077 # todo lo que se cree aquí (dumps, .env, tar) nace legible solo por ti
+mkdir -p "$DESTINO"
+chmod 700 "$DESTINO" # hay .env con claves dentro
+
+# Versiones del proyecto según .ddev/config.yaml, para que restore-projects lo
+# levante igual aunque el repo no traiga .ddev/. Imprime "php node tipo:version".
+versiones_ddev() {
+  local php node db
+  php=$(ddev_php_configurado)
+  node=$(ddev_node_configurado)
+  db=$(ddev_db_configurada)
+  printf '%s %s %s' "${php:--}" "${node:--}" "${db:--}"
+}
+
+# Devuelve 0 si dejó todo en $DESTINO. Corre en subshell para que un fallo en un
+# proyecto no arrastre al resto.
+respaldar() {
+  local nombre=$1 approot=$2
+  if [ ! -d "$approot" ]; then
+    echo "    ✖ la carpeta ya no existe: $approot"
+    return 1
+  fi
   (
-    cd "$approot"
+    cd "$approot" || exit 1
+    # 1. base de datos (si el proyecto está detenido, se levanta)
     if ! ddev export-db --file="$DESTINO/${nombre}.sql.gz" 2>/dev/null; then
       echo "    (proyecto detenido; lo levanto para exportar)"
-      ddev start -y >/dev/null
-      ddev export-db --file="$DESTINO/${nombre}.sql.gz"
+      ddev start -y >/dev/null || exit 1
+      ddev export-db --file="$DESTINO/${nombre}.sql.gz" || exit 1
     fi
+    echo "    ✔ base de datos"
+    # 2. .env
     if [ -f .env ]; then
-      cp .env "$DESTINO/${nombre}.env"
+      cp .env "$DESTINO/${nombre}.env" || exit 1
+      echo "    ✔ .env"
     fi
+    local con_storage=false con_minio=false b
+    if [ "$SOLO_BD" = 0 ]; then
+      # 3. archivos subidos: storage/app, solo si tiene algo más que .gitignore
+      if [ -d storage/app ] && [ -n "$(find storage/app -type f ! -name .gitignore -print -quit 2>/dev/null)" ]; then
+        tar czf "$DESTINO/${nombre}-storage.tar.gz" storage/app || exit 1
+        con_storage=true
+        echo "    ✔ storage/app ($(du -h "$DESTINO/${nombre}-storage.tar.gz" | cut -f1))"
+      fi
+      # 4. buckets de MinIO: mc corre dentro del contenedor minio, que tiene la carpeta
+      #    .ddev/ montada en /mnt/ddev_config; se vuelca ahí y se empaqueta desde el host
+      if [ -f .ddev/docker-compose.minio.yaml ]; then
+        rm -rf .ddev/.kit-minio-backup && mkdir -p .ddev/.kit-minio-backup
+        for b in $(ddev mc ls minio 2>/dev/null | awk '{print $NF}' | sed 's#/$##' | tr -d '\r'); do
+          ddev mc mirror --quiet "minio/$b" "/mnt/ddev_config/.kit-minio-backup/$b" >/dev/null 2>&1 || exit 1
+        done
+        # mc corre como root en el contenedor: los archivos volcados hay que devolvérselos al usuario
+        ddev exec -s minio chown -R "$(id -u):$(id -g)" /mnt/ddev_config/.kit-minio-backup >/dev/null 2>&1 || true
+        if [ -n "$(find .ddev/.kit-minio-backup -type f -print -quit 2>/dev/null)" ]; then
+          tar czf "$DESTINO/${nombre}-minio.tar.gz" -C .ddev/.kit-minio-backup . || exit 1
+          con_minio=true
+          echo "    ✔ buckets de MinIO ($(du -h "$DESTINO/${nombre}-minio.tar.gz" | cut -f1))"
+        fi
+        rm -rf .ddev/.kit-minio-backup || echo "    ⚠ no pude borrar .ddev/.kit-minio-backup; bórralo a mano"
+      fi
+    fi
+    # 5. manifiesto: lo que restore-projects necesita para levantarlo igual
+    local php node db
+    read -r php node db <<<"$(versiones_ddev)"
+    # el remoto sin credenciales: una URL https://usuario:token@… no debe quedar en el manifiesto
+    local remoto
+    remoto=$(git remote get-url origin 2>/dev/null | sed -E 's#^([A-Za-z+]+://)[^/@]*:[^/@]*@#\1#' || true)
+    jq -n --arg nombre "$nombre" --arg approot "$approot" \
+      --arg remoto "$remoto" \
+      --arg php "$php" --arg node "$node" --arg db "$db" --arg fecha "$(date +%FT%T)" \
+      --argjson storage "$con_storage" --argjson minio "$con_minio" \
+      '{nombre: $nombre, approot: $approot, remoto: $remoto, ddev: {php: $php, node: $node, database: $db}, fecha: $fecha, incluye: {bd: true, env: true, storage: $storage, minio: $minio}}' \
+      >"$DESTINO/${nombre}.json" || exit 1
   )
-  echo "    ✔ BD y .env respaldados"
-done
+}
 
+FALLIDOS=()
+TOTAL=0
+while IFS=$'\t' read -r nombre approot; do
+  [ -n "$nombre" ] || continue
+  if [ -n "$SOLO" ] && [ "$nombre" != "$SOLO" ]; then continue; fi
+  TOTAL=$((TOTAL + 1))
+  echo "==> $nombre"
+  if respaldar "$nombre" "$approot"; then
+    echo "    ✔ $nombre respaldado"
+  else
+    echo "    ✖ $nombre quedó SIN respaldo (o incompleto)"
+    FALLIDOS+=("$nombre")
+  fi
+done < <(ddev list -j | jq -r '.raw[] | "\(.name)\t\(.approot)"')
+
+if [ "$PERSONAL" = 1 ]; then
+  echo "==> archivos personales"
+  LISTA=()
+  for f in .ssh .gitconfig .config/gh .config/composer/auth.json .composer/auth.json .npmrc .ddev/global_config.yaml; do
+    if [ -e "$HOME/$f" ]; then LISTA+=("$f"); fi
+  done
+  if [ "${#LISTA[@]}" -gt 0 ]; then
+    tar czf "$DESTINO/personal.tar.gz" -C "$HOME" "${LISTA[@]}" # con umask 077: nace 600
+    echo "    ✔ personal.tar.gz: ${LISTA[*]}"
+    echo "    ⚠ contiene llaves privadas y tokens en claro: cuídalo como a tus llaves"
+  else
+    echo "    (no encontré nada que respaldar)"
+  fi
+fi
+
+if [ "$TOTAL" = 0 ]; then
+  if [ -n "$SOLO" ]; then fallo "No hay ningún proyecto DDEV llamado '$SOLO' (mira: ddev list)"; fi
+  fallo "No hay proyectos DDEV registrados en esta máquina (mira: ddev list)"
+fi
 echo
-echo "Respaldo completo en: $DESTINO"
-echo "Recuerda respaldar también: ~/.ssh, ~/.gitconfig, y hacer push de tus repos."
+echo "Respaldo en: $DESTINO   ($((TOTAL - ${#FALLIDOS[@]})) de $TOTAL proyectos)"
+if [ "$PERSONAL" = 0 ]; then
+  echo "Con --personal se respaldan también ~/.ssh, ~/.gitconfig, la sesión de gh, los tokens de Composer y npm y la config de DDEV."
+fi
+echo "Haz push de todos tus repos y copia esta carpeta a un disco externo o a la nube: está en el disco que vas a formatear."
+echo "En la máquina nueva:  restore-projects $DESTINO"
+if [ "${#FALLIDOS[@]}" -gt 0 ]; then
+  echo
+  echo "⚠ Sin respaldo: ${FALLIDOS[*]}"
+  echo "  Revisa cada uno: ¿existe la carpeta? ¿levanta con 'ddev start'? Si borraste el proyecto,"
+  echo "  sácalo de la lista con: ddev stop --unlist <nombre>"
+  exit 1
+fi

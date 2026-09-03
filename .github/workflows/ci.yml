@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: shellcheck + shfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: "Instalar linters (versiones fijadas, las mismas que en local)"
+        run: |
+          curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz |
+            tar -xJ --strip-components=1 -C /tmp shellcheck-v0.11.0/shellcheck
+          sudo install -m 0755 /tmp/shellcheck /usr/local/bin/shellcheck
+          sudo curl -fsSL -o /usr/local/bin/shfmt https://github.com/mvdan/sh/releases/download/v3.14.0/shfmt_v3.14.0_linux_amd64
+          sudo chmod +x /usr/local/bin/shfmt
+          shellcheck --version | head -2 && shfmt --version
+      - name: shellcheck
+        run: shellcheck -x setup.sh setup-*.sh bin/* lib/*.sh tests/*.sh
+      - name: shfmt
+        run: shfmt -i 2 -ci -d setup.sh setup-*.sh bin/* lib/*.sh tests/*.sh
+
+  tests:
+    name: pruebas (sin tocar el sistema)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: bash tests/run.sh
+
+  instalador-debian:
+    name: instalar en ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["debian:12", "debian:13", "ubuntu:24.04", "ubuntu:26.04"]
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Usuario normal con sudo (el instalador se niega a correr como root)
+        run: |
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q sudo ca-certificates
+          useradd -m -s /bin/bash dev
+          echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev
+          chown -R dev: .
+      # Sin Docker (en un contenedor no hay daemon que arrancar) ni VS Code (repo
+      # gráfico): todo lo demás se instala de verdad: repos, DDEV, mkcert, nvm,
+      # PHP + Composer, gh, sysctl, helpers.
+      - name: bash setup.sh
+        run: sudo -u dev -H env INSTALL_DOCKER=0 INSTALL_IDES=0 bash setup.sh
+      # nvm se carga desde .bashrc, que Ubuntu corta en shells no interactivas: se carga a mano
+      - name: Comprobar resultado
+        run: |
+          sudo -u dev -H bash -lc '. ~/.nvm/nvm.sh && ddev --version && mkcert --version && php --version | head -1 && composer --version | head -1 && node --version && gh --version | head -1 && ls -l ~/.local/bin/new-laravel && new-laravel --help | head -3'
+
+  # Solo cuando el repo sea público: los runners de macOS cuestan 10x en privados.
+  instalador-macos:
+    name: instalar en macOS
+    if: ${{ !github.event.repository.private }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: bash setup.sh
+        run: INSTALL_DOCKER=0 INSTALL_IDES=0 bash setup.sh
+      - name: Comprobar resultado
+        run: . ~/.nvm/nvm.sh && ddev --version && mkcert --version && php --version | head -1 && composer --version | head -1 && node --version && ls -l ~/.local/bin/new-laravel && ~/.local/bin/new-laravel --help | head -3
