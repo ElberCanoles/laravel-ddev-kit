@@ -73,6 +73,7 @@ if grep -qi microsoft /proc/version 2>/dev/null && [ "${KIT_WSL:-0}" != "1" ]; t
   exit 1
 fi
 ARCH=$(dpkg --print-architecture)
+USER=${USER:-$(id -un)} # 'su' sin login no la define, y con set -u eso abortaría
 NECESITA_RELOGIN=0
 
 kit_log_iniciar setup-debian
