@@ -34,3 +34,6 @@ trap 'rm -rf "$TMP"' EXIT
 # shellcheck disable=SC2034 # la usan los archivos de pruebas que cargan este
 RAIZ=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 export NO_COLOR=1
+# stdin conocido: los ddev falsos consumen stdin como el real, y ningún test debe
+# quedarse esperando a la terminal (o a una tubería abierta) de quien los corre
+exec </dev/null

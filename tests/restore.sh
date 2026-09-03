@@ -62,6 +62,17 @@ SALIDA=$(cd "$TMP" && PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/restore-projects" "$
 caso "--solo con un nombre que no está: error claro"
 assert_contiene "$SALIDA" "No hay proyectos que restaurar"
 
+echo "carpeta de respaldo relativa"
+rm -rf "$TMP/nuevo" "$TMP/llamadas"
+SALIDA=$(cd "$TMP" && PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/restore-projects" respaldo --solo app 2>&1)
+CODIGO=$?
+caso "con ruta relativa termina bien"
+assert_codigo "$CODIGO" 0
+caso "con ruta relativa restaura el .env e importa la BD igual"
+assert_eq "$(grep -c '^APP_KEY=base64:secreto$' "$TMP/nuevo/app/.env" 2>/dev/null)-$(grep -c 'import-db --file=' "$TMP/llamadas" 2>/dev/null)" "1-1"
+caso "el resumen muestra la ruta absoluta"
+assert_contiene "$SALIDA" "desde $TMP/respaldo"
+
 echo "sin remoto ni carpeta"
 mkdir -p "$TMP/respaldo2"
 jq -n --arg approot "$TMP/nada/app2" '{nombre: "app2", approot: $approot, remoto: "", ddev: {}}' >"$TMP/respaldo2/app2.json"

@@ -42,6 +42,8 @@ según [SemVer](https://semver.org/lang/es/).
 - Toggle `INSTALL_DOCKER=0` en ambos instaladores (otro Docker, o CI).
 - LICENSE (MIT), CONTRIBUTING, `.editorconfig`, `.shellcheckrc` y este CHANGELOG.
 - README: "Qué toca en tu sistema" y "Actualizar o desinstalar el kit".
+- CI: `workflow_dispatch` para lanzarlo a mano desde la pestaña Actions. Con el
+  repo público, el job de macOS ya corre en cada PR.
 
 ### Cambiado
 
@@ -52,9 +54,18 @@ según [SemVer](https://semver.org/lang/es/).
   invertidas.
 - `setup-macos.sh` instala el CLI `docker` de brew solo para Colima (Docker
   Desktop y OrbStack traen el suyo).
+- README: los pasos de clonado usan la URL pública del kit; el consejo pasa a
+  ser "haz un fork si lo adaptas a tu equipo".
 
 ### Corregido
 
+- `backup-projects` podía respaldar solo el primer proyecto y reportar éxito: la
+  lista de proyectos entraba por stdin y `ddev` (que reenvía stdin al contenedor
+  cuando no es una terminal) se tragaba el resto. La lista va ahora por el
+  descriptor 3.
+- `backup-projects` y `restore-projects` con una carpeta relativa: restore no
+  importaba nada y decía que todo fue bien; backup fallaba con un mensaje
+  confuso. Ambos resuelven la ruta a absoluta antes de entrar a cada proyecto.
 - `setup-debian.sh` crea `/etc/sysctl.d` si no existe (imágenes mínimas de
   Debian 12).
 - `nombre_valido` usa locale C: en es_ES/en_US.UTF-8 el rango `a-z` aceptaba

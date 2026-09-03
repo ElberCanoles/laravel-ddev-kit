@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch: # a mano desde la pestaña Actions, o: gh workflow run CI
 
 jobs:
   lint:
@@ -59,7 +60,8 @@ jobs:
         run: |
           sudo -u dev -H bash -lc '. ~/.nvm/nvm.sh && ddev --version && mkcert --version && php --version | head -1 && composer --version | head -1 && node --version && gh --version | head -1 && ls -l ~/.local/bin/new-laravel && new-laravel --help | head -3'
 
-  # Solo cuando el repo sea público: los runners de macOS cuestan 10x en privados.
+  # El repo es público y ahí los minutos de macOS son gratis. En un fork privado
+  # cuestan 10x: la condición salta el job en ese caso.
   instalador-macos:
     name: instalar en macOS
     if: ${{ !github.event.repository.private }}

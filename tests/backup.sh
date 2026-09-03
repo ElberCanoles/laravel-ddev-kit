@@ -19,6 +19,7 @@ cat >"$TMP/bin/ddev" <<FAKE
 case "\$1" in
   list) printf '{"raw":[{"name":"roto","approot":"$TMP/proys/roto"},{"name":"dormido","approot":"$TMP/proys/dormido"},{"name":"sano","approot":"$TMP/proys/sano"}]}\n' ;;
   export-db)
+    [ -t 0 ] || cat >/dev/null # como el ddev real: si stdin no es una terminal lo reenvía al contenedor (y lo consume)
     f=\${2#--file=}
     if [ "\$(basename "\$PWD")" = dormido ] && [ ! -f "\$PWD/.arrancado" ]; then echo "Project is not running" >&2; exit 1; fi
     echo "dump de \$(basename "\$PWD")" | gzip >"\$f" ;;
@@ -40,6 +41,8 @@ caso "termina con código 1 porque un proyecto quedó sin respaldo"
 assert_codigo "$CODIGO" 1
 caso "sigue después del proyecto roto"
 assert_contiene "$SALIDA" "2 de 3 proyectos"
+caso "recorre los 3 proyectos aunque ddev se trague stdin (la lista va por fd 3)"
+assert_eq "$(printf '%s' "$SALIDA" | grep -c '^==> ')" 3
 caso "lista el que falló"
 assert_contiene "$SALIDA" "Sin respaldo: roto"
 caso "levanta el proyecto detenido y lo exporta"
@@ -94,6 +97,17 @@ assert_eq "$CODIGO-$(printf '%s' "$SALIDA" | grep -c '^==> ')" "0-1"
 caso "--solo con un nombre inexistente: error claro"
 SALIDA=$(PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/backup-projects" "$TMP/dest" --solo nada 2>&1)
 assert_contiene "$SALIDA" "No hay ningún proyecto DDEV llamado 'nada'"
+
+echo "destino relativo"
+rm -rf "$TMP/cwd" && mkdir -p "$TMP/cwd"
+SALIDA=$(cd "$TMP/cwd" && PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/backup-projects" respaldo-hoy --solo sano 2>&1)
+CODIGO=$?
+caso "con destino relativo termina bien"
+assert_codigo "$CODIGO" 0
+caso "deja los archivos en esa carpeta, relativa a donde se corrió"
+assert_eq "$(cd "$TMP/cwd/respaldo-hoy" && find . -type f | sed 's#^\./##' | LC_ALL=C sort | tr '\n' ' ')" "sano-storage.tar.gz sano.env sano.json sano.sql.gz "
+caso "el resumen da la ruta absoluta para restore-projects"
+assert_contiene "$SALIDA" "restore-projects $TMP/cwd/respaldo-hoy"
 
 echo "opciones"
 SALIDA=$(PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/backup-projects" --help 2>&1)

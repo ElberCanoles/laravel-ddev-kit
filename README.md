@@ -41,9 +41,9 @@ ambos.
 **Linux (Debian, Ubuntu y derivados)**
 
 ```bash
-sudo apt update && sudo apt install -y git          # 1. git
-git clone <TU-REMOTO>/laravel-ddev-kit.git          # 2. este repo
-cd laravel-ddev-kit && bash setup.sh                # 3. instalador (pide sudo una vez)
+sudo apt update && sudo apt install -y git                        # 1. git
+git clone https://github.com/ElberCanoles/laravel-ddev-kit.git    # 2. el kit
+cd laravel-ddev-kit && bash setup.sh                              # 3. instalador (pide sudo una vez)
 # 4. cerrar sesión y volver a entrar (activa el grupo docker)
 ```
 
@@ -61,9 +61,9 @@ cd laravel-ddev-kit && bash setup.sh                # 3. instalador (pide sudo u
 **macOS**
 
 ```bash
-git clone <TU-REMOTO>/laravel-ddev-kit.git   # 1. este repo (si macOS ofrece instalar
-                                             #    las Command Line Tools, acepta)
-cd laravel-ddev-kit && bash setup.sh         # 2. instalador (instala Homebrew si falta)
+git clone https://github.com/ElberCanoles/laravel-ddev-kit.git    # 1. el kit (si macOS ofrece instalar
+                                                                  #    las Command Line Tools, acepta)
+cd laravel-ddev-kit && bash setup.sh                              # 2. instalador (instala Homebrew si falta)
 # 3. la primera vez, acepta el asistente de Docker Desktop cuando se abra
 ```
 
@@ -85,8 +85,8 @@ clones a mano y sigue con los demás.
 Sin respaldo, el camino manual es clonar cada proyecto y correr dentro
 `adopt-laravel` (o `ddev start` si ya trae `.ddev/`).
 
-> **Consejo**: sube este repo a un remoto privado para que el paso del clone
-> exista: `gh auth login && gh repo create laravel-ddev-kit --private --source=. --push`
+> **Consejo**: si adaptas el kit a tu equipo, haz un fork y clona el tuyo en el
+> paso del clone; así tus cambios también sobreviven al formateo.
 
 ## Qué instala `setup.sh`
 
