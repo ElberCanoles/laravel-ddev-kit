@@ -3,3 +3,6 @@
 
 # macOS
 .DS_Store
+
+# Configuración local de herramientas (Claude Code)
+.claude/
