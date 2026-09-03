@@ -67,14 +67,15 @@ env_laravel_ddev() { # env_laravel_ddev <url-de-la-app> [motor tipo:version, def
 
 # .env para MinIO (S3 local del add-on ddev/ddev-minio): la app habla con el servicio
 # 'minio' por dentro; la URL pública (navegador) pasa por el router de DDEV.
-env_minio() { # env_minio <nombre-proyecto>
+env_minio() { # env_minio <nombre-proyecto> [url-base sin puerto; default https://<nombre>.ddev.site]
+  local base=${2:-https://$1.ddev.site}
   env_set AWS_ACCESS_KEY_ID ddevminio
   env_set AWS_SECRET_ACCESS_KEY ddevminio
   env_set AWS_DEFAULT_REGION us-east-1
   env_set AWS_BUCKET "$1"
   env_set AWS_ENDPOINT "http://minio:10101"
   env_set AWS_USE_PATH_STYLE_ENDPOINT true
-  env_set AWS_URL "https://$1.ddev.site:10101/$1"
+  env_set AWS_URL "$base:10101/$1"
 }
 
 # Dev server de Vite alcanzable desde el navegador a través de DDEV. Receta oficial

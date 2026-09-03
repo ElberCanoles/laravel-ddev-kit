@@ -48,6 +48,16 @@ assert_eq "$(grep -E '^DB_(CONNECTION|PORT)=' .env | tr '\n' ' ')" "DB_CONNECTIO
 caso "APP_URL, DB_HOST y Mailpit"
 assert_eq "$(grep -E '^(APP_URL|DB_HOST|MAIL_HOST|MAIL_PORT)=' .env | sort | tr '\n' ' ')" "APP_URL=https://a.ddev.site DB_HOST=db MAIL_HOST=127.0.0.1 MAIL_PORT=1025 "
 
+echo "env_minio y url_sin_puerto"
+caso "url_sin_puerto quita el puerto alternativo del router"
+assert_eq "$(url_sin_puerto https://a.ddev.site:33001)-$(url_sin_puerto https://a.ddev.site)" "https://a.ddev.site-https://a.ddev.site"
+env_minio app https://app.ddev.local
+caso "env_minio usa la URL base que le dan (project_tld distinto)"
+assert_eq "$(grep -E '^AWS_(BUCKET|URL)=' .env | sort | tr '\n' ' ')" "AWS_BUCKET=app AWS_URL=https://app.ddev.local:10101/app "
+env_minio app
+caso "env_minio sin base: .ddev.site"
+assert_eq "$(grep '^AWS_URL=' .env)" "AWS_URL=https://app.ddev.site:10101/app"
+
 echo "lectura de .ddev/config.yaml"
 mkdir -p .ddev
 printf 'name: x\nphp_version: "8.4"\nnodejs_version: "22"\ndatabase:\n    type: postgres\n    version: "17"\nwebserver_type: nginx-fpm\n' >.ddev/config.yaml
@@ -109,8 +119,14 @@ assert_contiene "$SALIDA" "--db: usa mysql, mariadb o postgres"
 SALIDA=$(bash "$RAIZ/bin/new-laravel" --rara app 2>&1)
 caso "opción desconocida"
 assert_contiene "$SALIDA" "Opción desconocida: --rara"
+SALIDA=$(bash "$RAIZ/bin/new-laravel" app --db postgres 8.4 22 8.0 2>&1)
+caso "--db y versión de MySQL posicional a la vez: error claro (antes ganaba el posicional)"
+assert_contiene "$SALIDA" "no con las dos"
 SALIDA=$(cd "$TMP" && bash "$RAIZ/bin/adopt-laravel" --db nada 2>&1)
 caso "adopt-laravel --db desconocido"
 assert_contiene "$SALIDA" "--db: usa mysql, mariadb o postgres"
+SALIDA=$(cd "$TMP" && bash "$RAIZ/bin/adopt-laravel" --db mariadb 8.4 22 8.0 2>&1)
+caso "adopt-laravel: --db y versión posicional a la vez: error claro"
+assert_contiene "$SALIDA" "no con las dos"
 
 resumen

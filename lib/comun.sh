@@ -101,3 +101,7 @@ ddev_url() { # ddev_url primary_url https://x.ddev.site
   v=$(ddev describe -j 2>/dev/null | jq -r ".raw.$1 // empty" || true)
   printf '%s' "${v:-$2}"
 }
+# Esa URL sin el puerto: los servicios con puerto propio (MinIO) cuelgan del mismo host.
+url_sin_puerto() { # url_sin_puerto https://x.ddev.site:33001 → https://x.ddev.site
+  printf '%s' "$1" | sed -E 's#^([A-Za-z]+://[^/:]+).*#\1#'
+}
