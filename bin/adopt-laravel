@@ -29,6 +29,7 @@ RAIZ=$(cd -- "$(dirname -- "$ORIGEN")/.." && pwd)
 PHP_VERSION=8.5
 NODE_VERSION=24
 DB=""
+DB_OPCION=0
 POSICIONALES=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,6 +40,7 @@ while [ $# -gt 0 ]; do
     --db)
       DB=$(normalizar_db "${2:?--db necesita mysql, mariadb o postgres, con o sin versión}") ||
         fallo "--db: usa mysql, mariadb o postgres, con o sin versión (p. ej. postgres:18 o mariadb:11.8)"
+      DB_OPCION=1
       shift
       ;;
     --php)
@@ -56,7 +58,10 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "${POSICIONALES[0]:-}" ]; then PHP_VERSION=${POSICIONALES[0]}; fi
 if [ -n "${POSICIONALES[1]:-}" ]; then NODE_VERSION=${POSICIONALES[1]}; fi
-if [ -n "${POSICIONALES[2]:-}" ]; then DB="mysql:${POSICIONALES[2]}"; fi
+if [ -n "${POSICIONALES[2]:-}" ]; then
+  if [ "$DB_OPCION" = 1 ]; then fallo "Di el motor con --db o con la forma corta [php] [node] [version-mysql], no con las dos"; fi
+  DB="mysql:${POSICIONALES[2]}"
+fi
 
 if [ ! -f artisan ]; then
   fallo "Aquí no hay un proyecto Laravel (no encuentro 'artisan')."
@@ -102,7 +107,7 @@ URL_APP=$(ddev_url primary_url "https://${NOMBRE}.ddev.site")
 env_laravel_ddev "$URL_APP" "${DB:-mysql}"
 # MinIO solo si el add-on está presente en este proyecto
 if [ -f .ddev/docker-compose.minio.yaml ]; then
-  env_minio "$NOMBRE"
+  env_minio "$NOMBRE" "$(url_sin_puerto "$URL_APP")"
   ddev mc mb --ignore-existing "minio/${NOMBRE}" || true
 fi
 # Vite para DDEV solo cuando este comando creó el .ddev/: si el equipo ya lo tenía

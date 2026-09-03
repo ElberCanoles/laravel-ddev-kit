@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read # el CI solo lee el repo
+
 on:
   push:
     branches: [main]

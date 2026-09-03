@@ -29,6 +29,7 @@ RAIZ=$(cd -- "$(dirname -- "$ORIGEN")/.." && pwd)
 PHP_VERSION=8.5
 NODE_VERSION=24
 DB=mysql:8.4
+DB_OPCION=0
 KIT=none
 POSICIONALES=()
 while [ $# -gt 0 ]; do
@@ -44,6 +45,7 @@ while [ $# -gt 0 ]; do
     --db)
       DB=$(normalizar_db "${2:?--db necesita mysql, mariadb o postgres, con o sin versión}") ||
         fallo "--db: usa mysql, mariadb o postgres, con o sin versión (p. ej. postgres:18 o mariadb:11.8)"
+      DB_OPCION=1
       shift
       ;;
     --php)
@@ -66,7 +68,10 @@ if [ -z "$NOMBRE" ]; then
 fi
 if [ -n "${POSICIONALES[1]:-}" ]; then PHP_VERSION=${POSICIONALES[1]}; fi
 if [ -n "${POSICIONALES[2]:-}" ]; then NODE_VERSION=${POSICIONALES[2]}; fi
-if [ -n "${POSICIONALES[3]:-}" ]; then DB="mysql:${POSICIONALES[3]}"; fi
+if [ -n "${POSICIONALES[3]:-}" ]; then
+  if [ "$DB_OPCION" = 1 ]; then fallo "Di el motor con --db o con la forma corta [php] [node] [version-mysql], no con las dos"; fi
+  DB="mysql:${POSICIONALES[3]}"
+fi
 case "$KIT" in
   none) PAQUETE=laravel/laravel ;;
   vue) PAQUETE=laravel/vue-starter-kit ;;
@@ -123,8 +128,9 @@ ddev composer require --no-interaction league/flysystem-aws-s3-v3 "^3.0" --with-
 # --- .env: BD y Mailpit de DDEV, MinIO, y la URL real que sabe DDEV -----------
 URL_APP=$(ddev_url primary_url "https://${NOMBRE}.ddev.site")
 URL_MAILPIT=$(ddev_url mailpit_https_url "https://${NOMBRE}.ddev.site:8026")
+URL_BASE=$(url_sin_puerto "$URL_APP") # sin el puerto alternativo del router: MinIO usa los suyos
 env_laravel_ddev "$URL_APP" "$DB"
-env_minio "$NOMBRE"
+env_minio "$NOMBRE" "$URL_BASE"
 
 # --- Vite + HMR a través de DDEV ---------------------------------------------
 configurar_vite
@@ -152,7 +158,7 @@ cat <<FIN
 
    App:            ${URL_APP}     (o: ddev launch)
    Mailpit:        ${URL_MAILPIT}     (o: ddev launch -m)
-   MinIO consola:  https://${NOMBRE}.ddev.site:9090     (ddevminio / ddevminio)
+   MinIO consola:  ${URL_BASE}:9090     (ddevminio / ddevminio)
    Base de datos:  ddev mysql   (host 'db', bd/usuario/clave: db)$(case "$DB" in postgres*) printf ' → aquí: ddev psql' ;; esac)
    Colas y scheduler: ya corren dentro del contenedor (.ddev/config.kit.yaml); logs: ddev logs -f
 
