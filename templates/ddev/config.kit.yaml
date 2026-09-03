@@ -1,0 +1,24 @@
+# Opiniones del laravel-ddev-kit para este proyecto. DDEV mezcla cualquier
+# .ddev/config.*.yaml con config.yaml al hacer `ddev start`. Edítalo o bórralo a
+# gusto: el kit no lo vuelve a tocar si ya existe. Cambios → ddev restart
+
+# Dev server de Vite alcanzable desde el navegador en https://<proyecto>.ddev.site:5173
+web_extra_exposed_ports:
+  - name: vite
+    container_port: 5173
+    http_port: 5172
+    https_port: 5173
+
+# Colas y scheduler corriendo solos dentro del contenedor web: sin segunda terminal.
+# queue:listen recarga el código en cada job (queue:work no lo hace). Esperan a que
+# exista vendor/ para no fallar en un clon recién hecho. Sus logs: ddev logs -f
+web_extra_daemons:
+  - name: queue
+    command: "bash -c 'until [ -f vendor/autoload.php ]; do sleep 3; done; php artisan queue:listen --tries=3'"
+    directory: /var/www/html
+  - name: schedule
+    command: "bash -c 'until [ -f vendor/autoload.php ]; do sleep 3; done; php artisan schedule:work'"
+    directory: /var/www/html
+
+# yarn y pnpm disponibles bajo demanda (ddev yarn …, ddev pnpm …)
+corepack_enable: true
