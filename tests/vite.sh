@@ -30,7 +30,7 @@ prueba() {
   RESULTADO=$(cat "$DIR/$3" 2>/dev/null || true)
   RESTOS=$(find "$DIR" -name '*.kit-tmp.*' | wc -l | tr -d ' ')
 }
-bloques_server() { printf '%s\n' "$RESULTADO" | grep -c '^ *server: {' || true; }
+bloques_server() { printf '%s\n' "$RESULTADO" | grep -cE '^ *server *: *\{' || true; }
 spreads() { printf '%s\n' "$RESULTADO" | grep -c 'DDEV_PRIMARY_URL_WITHOUT_PORT ?' || true; }
 linea_de() { printf '%s\n' "$RESULTADO" | grep -n -- "$1" | head -1 | cut -d: -f1; }
 node_check() { # solo si hay node
@@ -106,14 +106,43 @@ prueba vacio - vite.config.js
 caso "sin vite.config: avisa"
 assert_contiene "$SALIDA" "No encontré"
 if [ "$HAY_NODE" = 1 ]; then
-  mkdir -p "$TMP/unalinea"
-  printf "import { defineConfig } from 'vite';\nexport default defineConfig({ plugins: [] });\n" >"$TMP/unalinea/vite.config.js"
-  ORIGINAL=$(cat "$TMP/unalinea/vite.config.js")
-  prueba unalinea - vite.config.js
-  caso "si el resultado no es JS válido, avisa y conserva el original"
+  # el ancla está en un comentario: lo insertado cae fuera del objeto y solo lo detecta node
+  mkdir -p "$TMP/comentado"
+  printf "// export default defineConfig({\nexport default { plugins: [] };\n" >"$TMP/comentado/vite.config.js"
+  ORIGINAL=$(cat "$TMP/comentado/vite.config.js")
+  prueba comentado - vite.config.js
+  caso "si aun así el resultado no es JS válido, avisa y conserva el original"
   assert_contiene "$SALIDA" "no pasó la comprobación"
   caso "si el resultado no es JS válido: contenido intacto y sin temporales"
   assert_eq "$RESULTADO|$RESTOS" "$ORIGINAL|0"
 fi
+
+echo "formatos que no vienen de prettier"
+mkdir -p "$TMP/sinespacio"
+printf "import { defineConfig } from 'vite';\nexport default defineConfig({\n    plugins: [],\n    server:{\n        watch: { ignored: ['x'] },\n    },\n});\n" >"$TMP/sinespacio/vite.config.js"
+prueba sinespacio - vite.config.js
+caso "server:{ sin espacio: se fusiona, un solo bloque server (antes creaba otro)"
+assert_eq "$(bloques_server)-$(spreads)" "1-1"
+caso "server:{ sin espacio: el spread quedó dentro del bloque existente"
+if [ "$(linea_de 'DDEV_PRIMARY_URL_WITHOUT_PORT ?')" -lt "$(linea_de 'watch:')" ]; then pasa; else falla; fi
+node_check "server:{ sin espacio" vite.config.js
+mkdir -p "$TMP/comentariofinal"
+printf "import { defineConfig } from 'vite';\nexport default defineConfig({\n    server: { // opciones del dev server\n        cors: true,\n    },\n});\n" >"$TMP/comentariofinal/vite.config.js"
+prueba comentariofinal - vite.config.js
+caso "server: { con comentario al final de línea: se fusiona"
+assert_eq "$(bloques_server)-$(spreads)" "1-1"
+node_check "server con comentario" vite.config.js
+mkdir -p "$TMP/serverlinea"
+printf "import { defineConfig } from 'vite';\nexport default defineConfig({\n    server: { cors: true },\n});\n" >"$TMP/serverlinea/vite.config.js"
+ORIGINAL=$(cat "$TMP/serverlinea/vite.config.js")
+prueba serverlinea - vite.config.js
+caso "server en una sola línea: avisa y deja el archivo intacto"
+assert_eq "$(printf '%s' "$SALIDA" | grep -c 'formato que no reconozco')|$RESULTADO" "1|$ORIGINAL"
+mkdir -p "$TMP/tsunalinea"
+printf "import { defineConfig } from 'vite';\nexport default defineConfig({ plugins: [] });\n" >"$TMP/tsunalinea/vite.config.ts"
+ORIGINAL=$(cat "$TMP/tsunalinea/vite.config.ts")
+prueba tsunalinea - vite.config.ts
+caso "vite.config.ts de una línea: avisa y deja el archivo intacto (antes lo rompía)"
+assert_eq "$(printf '%s' "$SALIDA" | grep -c 'No reconocí')|$RESULTADO|$RESTOS" "1|$ORIGINAL|0"
 
 resumen
