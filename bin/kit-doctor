@@ -146,7 +146,10 @@ if [ -n "${LIBRE:-}" ]; then
   if [ "$LIBRE" -ge 10 ]; then bien "espacio libre en $HOME: ${LIBRE} GB"; else ojo "solo ${LIBRE} GB libres en $HOME: las imágenes de Docker ocupan bastante (ddev clean, docker system prune)"; fi
 fi
 if git -C "$RAIZ" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  if GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" git -C "$RAIZ" fetch -q 2>/dev/null; then
+  # con timeout (coreutils; macOS no lo trae) un remoto https sin red no cuelga el diagnóstico
+  CON_TIEMPO=()
+  if hay timeout; then CON_TIEMPO=(timeout 15); fi
+  if GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" ${CON_TIEMPO[@]+"${CON_TIEMPO[@]}"} git -C "$RAIZ" fetch -q 2>/dev/null; then
     DETRAS=$(git -C "$RAIZ" rev-list --count 'HEAD..@{upstream}' 2>/dev/null || echo 0)
     if [ "$DETRAS" = 0 ]; then
       bien "kit al día (rama $(git -C "$RAIZ" branch --show-current 2>/dev/null))"
