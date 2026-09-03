@@ -84,8 +84,13 @@ env_minio() { # env_minio <nombre-proyecto>
 # Si el archivo ya trae un bloque server (el esqueleto de Laravel y los starter kits
 # lo traen, con watch.ignored) se inserta DENTRO: en JavaScript una clave repetida
 # se queda con el último valor, así que un segundo bloque server perdería toda esta
-# configuración en silencio. Valida la sintaxis del resultado con el Node del
-# contenedor antes de reemplazar (solo JS; TypeScript se omite).
+# configuración en silencio.
+#
+# Las anclas (la línea "server: {" o la de "defineConfig({") tienen que terminar en
+# "{", con un comentario // como mucho: así lo insertado queda dentro de ese objeto y
+# el resultado es válido en JS y en TS sin depender de Node para comprobarlo. En JS
+# se valida igualmente con el Node del contenedor antes de reemplazar; en TS no,
+# porque ese Node puede no entender los tipos.
 configurar_vite() {
   local archivo="" f
   for f in vite.config.js vite.config.mjs vite.config.ts vite.config.mts; do
@@ -106,9 +111,12 @@ configurar_vite() {
     return 0
   fi
   local modo
-  if grep -qE '^[[:space:]]*server: \{' "$archivo"; then
+  if grep -qE '^[[:space:]]*server[[:space:]]*:[[:space:]]*\{[[:space:]]*(//.*)?$' "$archivo"; then
     modo=fusionar
-  elif grep -q 'defineConfig({' "$archivo"; then
+  elif grep -qE '^[[:space:]]*server[[:space:]]*:' "$archivo"; then
+    aviso "$archivo trae un bloque server en un formato que no reconozco (¿en una sola línea?); agrega la configuración a mano (README → npm y Vite)"
+    return 0
+  elif grep -qE 'defineConfig\(\{[[:space:]]*(//.*)?$' "$archivo"; then
     modo=crear
   else
     aviso "No reconocí la estructura de $archivo; agrega el bloque server a mano (README → npm y Vite)"
@@ -128,10 +136,10 @@ configurar_vite() {
       print ind "} : {}),"
     }
     { print }
-    !hecho && modo == "fusionar" && /^[[:space:]]*server: \{/ {
+    !hecho && modo == "fusionar" && /^[[:space:]]*server[[:space:]]*:[[:space:]]*\{[[:space:]]*(\/\/.*)?$/ {
       match($0, /^[[:space:]]*/); ddev(substr($0, 1, RLENGTH) "    "); hecho = 1
     }
-    !hecho && modo == "crear" && /defineConfig\(\{/ {
+    !hecho && modo == "crear" && /defineConfig\(\{[[:space:]]*(\/\/.*)?$/ {
       print "    server: {"; ddev("        "); print "    },"; hecho = 1
     }
   ' "$archivo" >"$tmp"

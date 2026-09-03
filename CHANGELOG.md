@@ -59,6 +59,12 @@ según [SemVer](https://semver.org/lang/es/).
 
 ### Corregido
 
+- `configurar_vite` (`new-laravel` y `adopt-laravel`): un `vite.config.ts` con
+  `defineConfig({...})` en una sola línea quedaba con sintaxis rota y se daba por
+  configurado, y un `server:{` sin espacio creaba un segundo bloque `server` que
+  anulaba al del kit en silencio. Ahora acepta cualquier espaciado y solo inserta
+  cuando la línea ancla termina en `{`; si el bloque `server` o el `defineConfig`
+  van en una sola línea, avisa y deja el archivo intacto.
 - `backup-projects` podía respaldar solo el primer proyecto y reportar éxito: la
   lista de proyectos entraba por stdin y `ddev` (que reenvía stdin al contenedor
   cuando no es una terminal) se tragaba el resto. La lista va ahora por el
