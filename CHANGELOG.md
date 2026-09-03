@@ -44,9 +44,15 @@ según [SemVer](https://semver.org/lang/es/).
 - README: "Qué toca en tu sistema" y "Actualizar o desinstalar el kit".
 - CI: `workflow_dispatch` para lanzarlo a mano desde la pestaña Actions. Con el
   repo público, el job de macOS ya corre en cada PR.
+- Prueba de camino feliz de `new-laravel` con ddev simulado
+  (`tests/new_laravel.sh`): versiones, MinIO, `.env`, Vite, Xdebug y commit.
+- CI: el token de Actions solo con permiso de lectura (`permissions`).
 
 ### Cambiado
 
+- La URL pública de MinIO (`AWS_URL` y la consola que imprime `new-laravel`)
+  sale de la URL real del proyecto, sin el puerto alternativo del router; así
+  respeta un `project_tld` distinto.
 - `setup-debian.sh` registra todos los repositorios de una vez: dos
   `apt-get update` en total en vez de cuatro.
 - Colores solo cuando la salida es una terminal (y se respeta `NO_COLOR`).
@@ -72,6 +78,11 @@ según [SemVer](https://semver.org/lang/es/).
   letras acentuadas.
 - mkcert desde GitHub: nombre correcto del binario en armhf y aviso claro si la
   API de GitHub no responde.
+- `new-laravel` y `adopt-laravel` avisan si el motor viene con `--db` y también
+  con la forma corta, en vez de dejar ganar al posicional en silencio.
+- `kit-doctor`: el `git fetch` que comprueba si el kit está al día lleva
+  `timeout` donde existe, para no colgarse sin red con un remoto https.
+- `setup-debian.sh` no aborta por `USER` sin definir (`su` sin login) con `set -u`.
 
 ## [0.2.0] - 2026-09-01
 
