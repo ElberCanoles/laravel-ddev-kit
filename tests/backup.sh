@@ -19,6 +19,7 @@ cat >"$TMP/bin/ddev" <<FAKE
 case "\$1" in
   list) printf '{"raw":[{"name":"roto","approot":"$TMP/proys/roto"},{"name":"dormido","approot":"$TMP/proys/dormido"},{"name":"sano","approot":"$TMP/proys/sano"}]}\n' ;;
   export-db)
+    [ -t 0 ] || cat >/dev/null # como el ddev real: si stdin no es una terminal lo reenvía al contenedor (y lo consume)
     f=\${2#--file=}
     if [ "\$(basename "\$PWD")" = dormido ] && [ ! -f "\$PWD/.arrancado" ]; then echo "Project is not running" >&2; exit 1; fi
     echo "dump de \$(basename "\$PWD")" | gzip >"\$f" ;;
@@ -40,6 +41,8 @@ caso "termina con código 1 porque un proyecto quedó sin respaldo"
 assert_codigo "$CODIGO" 1
 caso "sigue después del proyecto roto"
 assert_contiene "$SALIDA" "2 de 3 proyectos"
+caso "recorre los 3 proyectos aunque ddev se trague stdin (la lista va por fd 3)"
+assert_eq "$(printf '%s' "$SALIDA" | grep -c '^==> ')" 3
 caso "lista el que falló"
 assert_contiene "$SALIDA" "Sin respaldo: roto"
 caso "levanta el proyecto detenido y lo exporta"

@@ -134,7 +134,10 @@ respaldar() {
 
 FALLIDOS=()
 TOTAL=0
-while IFS=$'\t' read -r nombre approot; do
+# La lista entra por el descriptor 3 y no por stdin: cuando stdin no es una terminal,
+# ddev lo reenvía al contenedor (export-db, exec, mc…) y se tragaría los proyectos que
+# faltan; el respaldo terminaría "completo" con uno solo.
+while IFS=$'\t' read -r -u 3 nombre approot; do
   [ -n "$nombre" ] || continue
   if [ -n "$SOLO" ] && [ "$nombre" != "$SOLO" ]; then continue; fi
   TOTAL=$((TOTAL + 1))
@@ -145,7 +148,7 @@ while IFS=$'\t' read -r nombre approot; do
     echo "    ✖ $nombre quedó SIN respaldo (o incompleto)"
     FALLIDOS+=("$nombre")
   fi
-done < <(ddev list -j | jq -r '.raw[] | "\(.name)\t\(.approot)"')
+done 3< <(ddev list -j | jq -r '.raw[] | "\(.name)\t\(.approot)"')
 
 if [ "$PERSONAL" = 1 ]; then
   echo "==> archivos personales"
