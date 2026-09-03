@@ -5,48 +5,47 @@ según [SemVer](https://semver.org/lang/es/).
 
 ## Sin publicar
 
+## [0.3.0] - 2026-09-03
+
+Starter kits y motores de base de datos en `new-laravel`, `restore-projects`
+como pareja de `backup-projects`, `kit-doctor`, pruebas con CI, y varios fallos
+silenciosos que salieron en una auditoría del código.
+
 ### Agregado
 
 - `new-laravel --kit vue|react|livewire` (starter kits oficiales),
-  `--db mysql|mariadb|postgres[:version]`, `--php`, `--node`; la forma
-  posicional sigue funcionando.
+  `--db mysql|mariadb|postgres[:version]`, `--php` y `--node`; la forma
+  posicional sigue funcionando. El `.env` sale según el motor: `pgsql` y 5432
+  para Postgres, `mariadb` si el proyecto declara esa conexión.
 - `adopt-laravel --db/--php/--node`; sin `--db` deduce el motor del
   `DB_CONNECTION` del `.env`. Al crear el `.ddev/` configura también Vite.
 - `.ddev/config.kit.yaml` (plantilla en `templates/ddev/`): puertos de Vite,
   daemons `queue:listen` y `schedule:work` que esperan a `vendor/`, y
   `corepack_enable`. Sustituye al bloque que se agregaba a `config.yaml`.
-- `.env` por motor: `pgsql`/5432 para Postgres, `mariadb` si el proyecto
-  declara esa conexión.
-- `restore-projects` pasa el motor respaldado a `adopt-laravel` con `--db`.
-- README: la nota sobre el `.env` que DDEV reescribe en cada `ddev start`.
-- Composer siempre con `--no-interaction`: `ddev composer create-project` con un
-  starter kit se quedaba esperando una respuesta por stdin.
 - `restore-projects`: levanta en una máquina nueva todo lo que guardó
-  `backup-projects` (clona del remoto, `adopt-laravel` con las versiones
-  respaldadas, importa BD, `.env`, `storage/app` y buckets de MinIO;
-  `--en`, `--solo`, `--personal`).
+  `backup-projects` (clona del remoto, `adopt-laravel` con las versiones y el
+  motor respaldados, importa BD, `.env`, `storage/app` y buckets de MinIO);
+  opciones `--en`, `--solo` y `--personal`.
 - `backup-projects` respalda también `storage/app`, los buckets de MinIO y un
   manifiesto por proyecto; `--personal` (llaves SSH, gitconfig, gh, tokens de
   Composer y npm, config de DDEV), `--solo-bd` y `--solo <proyecto>`.
 - `kit-doctor`: diagnóstico de la máquina y, dentro de un proyecto, del
   proyecto, con la solución al lado de cada problema.
-- Biblioteca compartida `lib/comun.sh` (mensajes, `env_set`, chequeos) usada
-  por instaladores y helpers.
 - Los instaladores guardan un log de cada corrida en `~/.laravel-ddev-kit/` y,
   si algo falla, dicen en qué paso y dónde está el log.
 - `--help` en `setup.sh` y en los helpers de `bin/`.
 - Los helpers se instalan como enlaces en `~/.local/bin`, así funcionan con
   cualquier shell sin tocar el PATH (si mueves el clon, re-corre `setup.sh`).
-- Pruebas en `tests/` y CI en GitHub Actions (lint + pruebas + instalación real
-  en contenedores de Debian 12, Debian 13, Ubuntu 24.04 y Ubuntu 26.04).
 - Toggle `INSTALL_DOCKER=0` en ambos instaladores (otro Docker, o CI).
+- Biblioteca compartida `lib/` (mensajes, `env_set`, chequeos, detección de
+  distro, Vite) usada por instaladores y helpers.
+- Pruebas en `tests/` con `ddev` y `docker` simulados, incluido `new-laravel`
+  de principio a fin, y CI en GitHub Actions: lint, pruebas e instalación real
+  en Debian 12, Debian 13, Ubuntu 24.04, Ubuntu 26.04 y macOS. Se puede lanzar
+  a mano (`workflow_dispatch`) y el token solo tiene permiso de lectura.
 - LICENSE (MIT), CONTRIBUTING, `.editorconfig`, `.shellcheckrc` y este CHANGELOG.
-- README: "Qué toca en tu sistema" y "Actualizar o desinstalar el kit".
-- CI: `workflow_dispatch` para lanzarlo a mano desde la pestaña Actions. Con el
-  repo público, el job de macOS ya corre en cada PR.
-- Prueba de camino feliz de `new-laravel` con ddev simulado
-  (`tests/new_laravel.sh`): versiones, MinIO, `.env`, Vite, Xdebug y commit.
-- CI: el token de Actions solo con permiso de lectura (`permissions`).
+- README: "Qué toca en tu sistema", "Actualizar o desinstalar el kit" y la nota
+  sobre el `.env` que DDEV reescribe en cada `ddev start`.
 
 ### Cambiado
 
@@ -55,22 +54,16 @@ según [SemVer](https://semver.org/lang/es/).
   respeta un `project_tld` distinto.
 - `setup-debian.sh` registra todos los repositorios de una vez: dos
   `apt-get update` en total en vez de cuatro.
+- `setup-macos.sh` instala el CLI `docker` de brew solo para Colima (Docker
+  Desktop y OrbStack traen el suyo).
 - Colores solo cuando la salida es una terminal (y se respeta `NO_COLOR`).
 - Los valores de `env_set` viajan por `ENVIRON`: awk ya no interpreta barras
   invertidas.
-- `setup-macos.sh` instala el CLI `docker` de brew solo para Colima (Docker
-  Desktop y OrbStack traen el suyo).
 - README: los pasos de clonado usan la URL pública del kit; el consejo pasa a
   ser "haz un fork si lo adaptas a tu equipo".
 
 ### Corregido
 
-- `configurar_vite` (`new-laravel` y `adopt-laravel`): un `vite.config.ts` con
-  `defineConfig({...})` en una sola línea quedaba con sintaxis rota y se daba por
-  configurado, y un `server:{` sin espacio creaba un segundo bloque `server` que
-  anulaba al del kit en silencio. Ahora acepta cualquier espaciado y solo inserta
-  cuando la línea ancla termina en `{`; si el bloque `server` o el `defineConfig`
-  van en una sola línea, avisa y deja el archivo intacto.
 - `backup-projects` podía respaldar solo el primer proyecto y reportar éxito: la
   lista de proyectos entraba por stdin y `ddev` (que reenvía stdin al contenedor
   cuando no es una terminal) se tragaba el resto. La lista va ahora por el
@@ -78,17 +71,25 @@ según [SemVer](https://semver.org/lang/es/).
 - `backup-projects` y `restore-projects` con una carpeta relativa: restore no
   importaba nada y decía que todo fue bien; backup fallaba con un mensaje
   confuso. Ambos resuelven la ruta a absoluta antes de entrar a cada proyecto.
+- `configurar_vite` (`new-laravel` y `adopt-laravel`): un `vite.config.ts` con
+  `defineConfig({...})` en una sola línea quedaba con sintaxis rota y se daba por
+  configurado, y un `server:{` sin espacio creaba un segundo bloque `server` que
+  anulaba al del kit en silencio. Ahora acepta cualquier espaciado y solo inserta
+  cuando la línea ancla termina en `{`; si el bloque `server` o el `defineConfig`
+  van en una sola línea, avisa y deja el archivo intacto.
+- Composer siempre con `--no-interaction`: `ddev composer create-project` con un
+  starter kit se quedaba esperando una respuesta por stdin.
+- `new-laravel` y `adopt-laravel` avisan si el motor viene con `--db` y también
+  con la forma corta, en vez de dejar ganar al posicional en silencio.
+- `kit-doctor`: el `git fetch` que comprueba si el kit está al día lleva
+  `timeout` donde existe, para no colgarse sin red con un remoto https.
+- `setup-debian.sh` no aborta por `USER` sin definir (`su` sin login) con `set -u`.
 - `setup-debian.sh` crea `/etc/sysctl.d` si no existe (imágenes mínimas de
   Debian 12).
 - `nombre_valido` usa locale C: en es_ES/en_US.UTF-8 el rango `a-z` aceptaba
   letras acentuadas.
 - mkcert desde GitHub: nombre correcto del binario en armhf y aviso claro si la
   API de GitHub no responde.
-- `new-laravel` y `adopt-laravel` avisan si el motor viene con `--db` y también
-  con la forma corta, en vez de dejar ganar al posicional en silencio.
-- `kit-doctor`: el `git fetch` que comprueba si el kit está al día lleva
-  `timeout` donde existe, para no colgarse sin red con un remoto https.
-- `setup-debian.sh` no aborta por `USER` sin definir (`su` sin login) con `set -u`.
 
 ## [0.2.0] - 2026-09-01
 
