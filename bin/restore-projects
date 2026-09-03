@@ -62,6 +62,7 @@ if [ -z "$RESPALDO" ]; then
 fi
 RESPALDO=${RESPALDO%/}
 if [ ! -d "$RESPALDO" ]; then fallo "No existe la carpeta de respaldo: $RESPALDO"; fi
+RESPALDO=$(cd -- "$RESPALDO" && pwd) # ruta absoluta: restaurar() entra a cada proyecto con cd
 requiere ddev docker jq git tar
 docker_responde
 

@@ -98,6 +98,17 @@ caso "--solo con un nombre inexistente: error claro"
 SALIDA=$(PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/backup-projects" "$TMP/dest" --solo nada 2>&1)
 assert_contiene "$SALIDA" "No hay ningún proyecto DDEV llamado 'nada'"
 
+echo "destino relativo"
+rm -rf "$TMP/cwd" && mkdir -p "$TMP/cwd"
+SALIDA=$(cd "$TMP/cwd" && PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/backup-projects" respaldo-hoy --solo sano 2>&1)
+CODIGO=$?
+caso "con destino relativo termina bien"
+assert_codigo "$CODIGO" 0
+caso "deja los archivos en esa carpeta, relativa a donde se corrió"
+assert_eq "$(cd "$TMP/cwd/respaldo-hoy" && find . -type f | sed 's#^\./##' | LC_ALL=C sort | tr '\n' ' ')" "sano-storage.tar.gz sano.env sano.json sano.sql.gz "
+caso "el resumen da la ruta absoluta para restore-projects"
+assert_contiene "$SALIDA" "restore-projects $TMP/cwd/respaldo-hoy"
+
 echo "opciones"
 SALIDA=$(PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/backup-projects" --help 2>&1)
 caso "--help imprime el uso"
