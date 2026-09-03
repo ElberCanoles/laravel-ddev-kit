@@ -1,120 +1,140 @@
 #!/usr/bin/env bash
 #
-# new-laravel — Crea un proyecto Laravel nuevo con DDEV, listo para trabajar:
-#   MySQL, Mailpit, MinIO (S3), SSL local, dominio https://<nombre>.ddev.site,
-#   Vite/HMR configurado y Xdebug listo para VS Code y PhpStorm.
+# new-laravel — Crea un proyecto Laravel nuevo con DDEV, listo para trabajar: base de
+#   datos, Mailpit, MinIO (S3), SSL local, dominio https://<nombre>.ddev.site, Vite/HMR,
+#   colas y scheduler corriendo solos, y Xdebug listo para VS Code y PhpStorm.
 #
-# Uso: new-laravel <nombre> [version-php] [version-node] [version-mysql]
-#      new-laravel mi-tienda              → PHP 8.4, Node 22, MySQL 8.0
-#      new-laravel mi-tienda 8.3 20 8.0
+# Uso: new-laravel <nombre> [opciones]
+#      new-laravel mi-tienda                      → PHP 8.5, Node 24, MySQL 8.4, esqueleto pelado
+#      new-laravel mi-tienda --kit vue            → starter kit oficial: vue, react, livewire o none
+#      new-laravel mi-tienda --db postgres        → motor: mysql, mariadb o postgres[:version]
+#      new-laravel mi-tienda --php 8.4 --node 22
+#      new-laravel mi-tienda 8.4 22 8.0           → forma corta: [php] [node] [version-mysql]
+#      new-laravel --help
 set -euo pipefail
 
-RAIZ=$(cd -- "$(dirname -- "$0")/.." && pwd)
-NOMBRE=${1:?Uso: new-laravel <nombre> [version-php] [version-node] [version-mysql]}
-PHP_VERSION=${2:-8.4}
-NODE_VERSION=${3:-22}
-MYSQL_VERSION=${4:-8.0}
+# Puede estar enlazado desde ~/.local/bin: resolver el enlace para encontrar lib/
+ORIGEN=$0
+while [ -L "$ORIGEN" ]; do
+  DIR=$(cd -- "$(dirname -- "$ORIGEN")" && pwd)
+  ORIGEN=$(readlink "$ORIGEN")
+  case $ORIGEN in /*) ;; *) ORIGEN="$DIR/$ORIGEN" ;; esac
+done
+RAIZ=$(cd -- "$(dirname -- "$ORIGEN")/.." && pwd)
+# shellcheck source=../lib/comun.sh
+. "$RAIZ/lib/comun.sh"
+# shellcheck source=../lib/laravel.sh
+. "$RAIZ/lib/laravel.sh"
 
-if [ -e "$NOMBRE" ]; then
-  echo "La carpeta '$NOMBRE' ya existe aquí. Elige otro nombre o entra a esa carpeta."
+PHP_VERSION=8.5
+NODE_VERSION=24
+DB=mysql:8.4
+KIT=none
+POSICIONALES=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h | --help)
+      mostrar_ayuda "$0"
+      exit 0
+      ;;
+    --kit)
+      KIT=${2:?--kit necesita vue, react, livewire o none}
+      shift
+      ;;
+    --db)
+      DB=$(normalizar_db "${2:?--db necesita mysql, mariadb o postgres, con o sin versión}") ||
+        fallo "--db: usa mysql, mariadb o postgres, con o sin versión (p. ej. postgres:18 o mariadb:11.8)"
+      shift
+      ;;
+    --php)
+      PHP_VERSION=${2:?--php necesita una versión, p. ej. 8.4}
+      shift
+      ;;
+    --node)
+      NODE_VERSION=${2:?--node necesita una versión, p. ej. 22}
+      shift
+      ;;
+    -*) fallo "Opción desconocida: $1 (mira new-laravel --help)" ;;
+    *) POSICIONALES+=("$1") ;;
+  esac
+  shift
+done
+NOMBRE=${POSICIONALES[0]:-}
+if [ -z "$NOMBRE" ]; then
+  mostrar_ayuda "$0" >&2
   exit 1
 fi
+if [ -n "${POSICIONALES[1]:-}" ]; then PHP_VERSION=${POSICIONALES[1]}; fi
+if [ -n "${POSICIONALES[2]:-}" ]; then NODE_VERSION=${POSICIONALES[2]}; fi
+if [ -n "${POSICIONALES[3]:-}" ]; then DB="mysql:${POSICIONALES[3]}"; fi
+case "$KIT" in
+  none) PAQUETE=laravel/laravel ;;
+  vue) PAQUETE=laravel/vue-starter-kit ;;
+  react) PAQUETE=laravel/react-starter-kit ;;
+  livewire) PAQUETE=laravel/livewire-starter-kit ;;
+  *) fallo "--kit '$KIT' no existe: usa vue, react, livewire o none" ;;
+esac
 
-echo "==> Creando '$NOMBRE' (PHP $PHP_VERSION, Node $NODE_VERSION, MySQL $MYSQL_VERSION)"
+# --- chequeos previos: mejor fallar ahora que a medio camino -----------------
+if ! nombre_valido "$NOMBRE"; then
+  SUGERIDO=$(sugerir_nombre "$NOMBRE")
+  fallo "'$NOMBRE' no sirve como nombre de proyecto: es el dominio https://<nombre>.ddev.site, así que solo letras, dígitos y guiones (p. ej. '${SUGERIDO:-mi-app}')."
+fi
+requiere ddev docker jq
+docker_responde
+if [ -e "$NOMBRE" ]; then
+  fallo "La carpeta '$NOMBRE' ya existe aquí. Elige otro nombre o entra a esa carpeta."
+fi
+
+# si algo falla a medio camino, explica cómo dejar todo limpio (no borra nada solo)
+CREADO=0
+al_fallar() {
+  echo
+  printf "${ROJO}✖ new-laravel falló (línea %s).${SC}\n" "$1" >&2
+  if [ "$CREADO" = 1 ]; then
+    echo "  Para limpiar y volver a intentar:" >&2
+    echo "    cd .. && ddev delete -Oy '$NOMBRE'; rm -rf '$NOMBRE'" >&2
+  fi
+}
+trap 'al_fallar $LINENO' ERR
+
+paso "Creando '$NOMBRE' (PHP $PHP_VERSION, Node $NODE_VERSION, $DB, kit: $KIT)"
+if [ "$KIT" != none ] && [ "$PHP_VERSION" != "${PHP_VERSION#8.5}" ]; then
+  aviso "los starter kits todavía se basan en Laravel 12 y con PHP 8.5 muestran avisos de deprecación de PDO; si te molestan, usa --php 8.4"
+fi
 mkdir -p "$NOMBRE"
+CREADO=1
 cd "$NOMBRE"
 
-# --- DDEV: tipo laravel + versiones por proyecto -----------------------------
+# --- DDEV: tipo laravel, versiones por proyecto, opiniones del kit y MinIO ---
 ddev config --project-type=laravel --docroot=public \
   --php-version="$PHP_VERSION" --nodejs-version="$NODE_VERSION" \
-  --database="mysql:${MYSQL_VERSION}"
-
-# Vite dev server (receta oficial: https://docs.ddev.com/en/stable/users/usage/vite/)
-cat >> .ddev/config.yaml <<'YAML'
-
-web_extra_exposed_ports:
-  - name: vite
-    container_port: 5173
-    http_port: 5172
-    https_port: 5173
-YAML
-
-# MinIO (S3 local) — https://github.com/ddev/ddev-minio
-ddev add-on get ddev/ddev-minio
-
+  --database="$DB"
+ddev_config_kit "$RAIZ"         # .ddev/config.kit.yaml: Vite, colas, scheduler, corepack
+ddev add-on get ddev/ddev-minio # S3 local — https://github.com/ddev/ddev-minio
 ddev start -y
 
 # --- Laravel -----------------------------------------------------------------
-ddev composer create-project laravel/laravel
-ddev composer require league/flysystem-aws-s3-v3 "^3.0" --with-all-dependencies
+# --no-interaction: sin él, DDEV o Composer pueden quedarse esperando una respuesta
+# que nadie va a escribir (pasa con los starter kits)
+ddev composer create-project --no-interaction "$PAQUETE"
+ddev composer require --no-interaction league/flysystem-aws-s3-v3 "^3.0" --with-all-dependencies
 
-# --- .env --------------------------------------------------------------------
-# Toca solo la PRIMERA coincidencia (las variantes comentadas de referencia se
-# respetan) y evita sed -i, cuya sintaxis difiere entre GNU (Linux) y BSD (macOS).
-env_set() {
-  local clave=$1 valor=$2
-  if grep -qE "^${clave}=" .env; then
-    awk -v k="$clave" -v v="$valor" '!hecho && index($0, k"=") == 1 { print k "=" v; hecho=1; next } { print }' \
-      .env > .env.tmp && mv .env.tmp .env
-  elif grep -qE "^#[[:space:]]*${clave}=" .env; then
-    awk -v k="$clave" -v v="$valor" '!hecho && $0 ~ "^#[[:space:]]*" k "=" { print k "=" v; hecho=1; next } { print }' \
-      .env > .env.tmp && mv .env.tmp .env
-  else
-    printf '%s=%s\n' "$clave" "$valor" >> .env
-  fi
-}
+# --- .env: BD y Mailpit de DDEV, MinIO, y la URL real que sabe DDEV -----------
+URL_APP=$(ddev_url primary_url "https://${NOMBRE}.ddev.site")
+URL_MAILPIT=$(ddev_url mailpit_https_url "https://${NOMBRE}.ddev.site:8026")
+env_laravel_ddev "$URL_APP" "$DB"
+env_minio "$NOMBRE"
 
-# la URL real la sabe DDEV: si 80/443 están ocupados (p. ej. Laravel Valet),
-# el router cae a puertos alternativos y la URL lleva puerto
-URL_APP=$(ddev describe -j 2>/dev/null | jq -r '.raw.primary_url // empty')
-if [ -z "$URL_APP" ]; then URL_APP="https://${NOMBRE}.ddev.site"; fi
-URL_MAILPIT=$(ddev describe -j 2>/dev/null | jq -r '.raw.mailpit_https_url // empty')
-if [ -z "$URL_MAILPIT" ]; then URL_MAILPIT="https://${NOMBRE}.ddev.site:8026"; fi
-
-env_set APP_URL "$URL_APP"
-# Base de datos → contenedor 'db' de DDEV
-env_set DB_CONNECTION mysql
-env_set DB_HOST db
-env_set DB_PORT 3306
-env_set DB_DATABASE db
-env_set DB_USERNAME db
-env_set DB_PASSWORD db
-# Correo → Mailpit (interfaz: https://<nombre>.ddev.site:8026)
-env_set MAIL_MAILER smtp
-env_set MAIL_HOST 127.0.0.1
-env_set MAIL_PORT 1025
-# Archivos → MinIO (S3 local; consola: ddev minio)
-env_set AWS_ACCESS_KEY_ID ddevminio
-env_set AWS_SECRET_ACCESS_KEY ddevminio
-env_set AWS_DEFAULT_REGION us-east-1
-env_set AWS_BUCKET "$NOMBRE"
-env_set AWS_ENDPOINT "http://minio:10101"
-env_set AWS_USE_PATH_STYLE_ENDPOINT true
-env_set AWS_URL "https://${NOMBRE}.ddev.site:10101/${NOMBRE}"
-
-# --- Vite + HMR dentro de DDEV ----------------------------------------------
-if [ -f vite.config.js ] && ! grep -q "DDEV_PRIMARY_URL_WITHOUT_PORT" vite.config.js; then
-  awk '
-    { print }
-    /defineConfig\(\{/ && !hecho {
-      print "    server: {"
-      print "        host: \"0.0.0.0\","
-      print "        port: 5173,"
-      print "        strictPort: true,"
-      print "        origin: `${process.env.DDEV_PRIMARY_URL_WITHOUT_PORT}:5173`,"
-      print "        cors: {"
-      print "            origin: /https?:\\/\\/([A-Za-z0-9\\-\\.]+)?(\\.ddev\\.site)(?::\\d+)?$/,"
-      print "        },"
-      print "    },"
-      hecho=1
-    }
-  ' vite.config.js > vite.config.js.nuevo && mv vite.config.js.nuevo vite.config.js
-fi
+# --- Vite + HMR a través de DDEV ---------------------------------------------
+configurar_vite
 
 # --- Bucket, dependencias front y migraciones -------------------------------
 ddev mc mb --ignore-existing "minio/${NOMBRE}" || true
 ddev npm install
 ddev artisan migrate --no-interaction
+rm -f database/database.sqlite # el esqueleto migró contra un sqlite temporal antes de apuntar a la BD real
+ddev restart -y >/dev/null     # con vendor/ y .env listos arrancan bien colas y scheduler
 
 # --- Xdebug listo para VS Code ----------------------------------------------
 mkdir -p .vscode
@@ -123,17 +143,18 @@ cp "$RAIZ/templates/vscode-launch.json" .vscode/launch.json
 # --- Git ---------------------------------------------------------------------
 git init -q -b main
 git add -A
-git commit -qm "Proyecto Laravel nuevo con DDEV (PHP ${PHP_VERSION}, MySQL ${MYSQL_VERSION}, MinIO, Mailpit, Vite)" \
-  || echo "   (commit inicial omitido: configura tu identidad git)"
+git commit -qm "Proyecto Laravel nuevo con DDEV (PHP ${PHP_VERSION}, ${DB}, MinIO, Mailpit, Vite)" ||
+  echo "   (commit inicial omitido: configura tu identidad git)"
 
 cat <<FIN
 
 ✔ Proyecto '$NOMBRE' listo.
 
-   App:            ${URL_APP}
+   App:            ${URL_APP}     (o: ddev launch)
    Mailpit:        ${URL_MAILPIT}     (o: ddev launch -m)
    MinIO consola:  https://${NOMBRE}.ddev.site:9090     (ddevminio / ddevminio)
-   MySQL:          ddev mysql   (host 'db', bd/usuario/clave: db)
+   Base de datos:  ddev mysql   (host 'db', bd/usuario/clave: db)$(case "$DB" in postgres*) printf ' → aquí: ddev psql' ;; esac)
+   Colas y scheduler: ya corren dentro del contenedor (.ddev/config.kit.yaml); logs: ddev logs -f
 
    Día a día (dentro de la carpeta):
      ddev artisan ...     ddev composer ...    ddev npm run dev

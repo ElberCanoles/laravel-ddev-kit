@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+#
+# kit-doctor — Revisa que la máquina esté lista para trabajar con el kit y, si estás
+# dentro de un proyecto Laravel, que el proyecto esté sano. Cada línea dice qué revisó
+# y, si algo está mal, cómo arreglarlo. No cambia nada.
+#
+# Uso: kit-doctor          (en cualquier carpeta; dentro de un proyecto revisa también el proyecto)
+#      kit-doctor --help
+#
+# Termina con código 1 si encontró algo roto (✖). Los avisos (⚠) no cuentan.
+set -uo pipefail
+
+# Puede estar enlazado desde ~/.local/bin: resolver el enlace para encontrar lib/
+ORIGEN=$0
+while [ -L "$ORIGEN" ]; do
+  DIR=$(cd -- "$(dirname -- "$ORIGEN")" && pwd)
+  ORIGEN=$(readlink "$ORIGEN")
+  case $ORIGEN in /*) ;; *) ORIGEN="$DIR/$ORIGEN" ;; esac
+done
+RAIZ=$(cd -- "$(dirname -- "$ORIGEN")/.." && pwd)
+# shellcheck source=../lib/comun.sh
+. "$RAIZ/lib/comun.sh"
+# shellcheck source=../lib/distro.sh
+. "$RAIZ/lib/distro.sh"
+
+case "${1:-}" in
+  -h | --help)
+    mostrar_ayuda "$0"
+    exit 0
+    ;;
+esac
+
+MAL=0
+bien() { ok "$*"; }
+ojo() { aviso "$*"; }
+mal() {
+  MAL=$((MAL + 1))
+  printf "${ROJO}    ✖ %s${SC}\n" "$*"
+}
+version_de() { "$1" --version 2>/dev/null | head -1 | tr -d '\r'; }
+hay() { command -v "$1" >/dev/null 2>&1; }
+SO=$(uname -s)
+
+paso "Sistema"
+case "$SO" in
+  Linux)
+    if detectar_familia_debian; then
+      bien "${PRETTY_NAME:-Linux} (familia ${FAMILIA})"
+    else
+      mal "${PRETTY_NAME:-Linux}: no es de la familia Debian y el kit no lo soporta"
+    fi
+    if grep -qi microsoft /proc/version 2>/dev/null; then ojo "WSL (Windows): el kit no lo soporta todavía (mira el README)"; fi
+    ;;
+  Darwin) bien "macOS $(sw_vers -productVersion 2>/dev/null) ($(uname -m))" ;;
+  *) mal "sistema no soportado: $SO" ;;
+esac
+
+paso "Herramientas"
+for h in docker ddev mkcert jq git; do
+  if hay "$h"; then bien "$h: $(version_de "$h")"; else mal "falta $h → bash setup.sh"; fi
+done
+for h in node php composer gh; do
+  if hay "$h"; then bien "$h: $(version_de "$h")"; else ojo "$h no instalado (opcional; bash setup.sh lo instala)"; fi
+done
+
+paso "Docker"
+if hay docker; then
+  if [ "$SO" = Linux ]; then
+    if id -nG | tr ' ' '\n' | grep -qx docker; then
+      bien "tu usuario está en el grupo docker"
+    else
+      mal "tu usuario no está en el grupo docker → sudo usermod -aG docker \$USER y vuelve a iniciar sesión"
+    fi
+    if snap list docker >/dev/null 2>&1; then mal "Docker de snap: DDEV no funciona bien con él → sudo snap remove docker && bash setup.sh"; fi
+  fi
+  if docker info >/dev/null 2>&1; then
+    bien "el daemon responde"
+    if docker compose version >/dev/null 2>&1; then bien "docker compose disponible"; else ojo "sin plugin docker compose (DDEV trae el suyo; no es grave)"; fi
+  elif [ "$SO" = Linux ]; then
+    mal "el daemon no responde → sudo systemctl start docker (si acabas de instalar, cierra sesión y vuelve a entrar)"
+  else
+    mal "Docker no responde → abre Docker Desktop u OrbStack, o colima start"
+  fi
+fi
+
+paso "DDEV y SSL local"
+if hay mkcert; then
+  CAROOT=$(mkcert -CAROOT 2>/dev/null || true)
+  if [ -n "$CAROOT" ] && [ -f "$CAROOT/rootCA.pem" ]; then
+    bien "CA de mkcert creada ($CAROOT)"
+  else
+    mal "la CA de mkcert no existe → mkcert -install"
+  fi
+fi
+# *.ddev.site apunta a 127.0.0.1 vía DNS público; sin internet DDEV cae a /etc/hosts
+if [ "$SO" = Darwin ]; then
+  RES=$(dscacheutil -q host -a name kit-doctor.ddev.site 2>/dev/null | awk '/ip_address/ {print $2}' | head -1)
+else
+  RES=$(getent hosts kit-doctor.ddev.site 2>/dev/null | awk '{print $1}' | head -1)
+fi
+if [ "${RES:-}" = "127.0.0.1" ]; then
+  bien "*.ddev.site resuelve a 127.0.0.1"
+else
+  ojo "*.ddev.site no resuelve ahora (¿sin internet?): DDEV usará /etc/hosts y pedirá sudo al hacer ddev start"
+fi
+ocupado() { # ocupado <puerto> → 0 si algo escucha en él
+  if hay ss; then
+    ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE ":$1\$"
+  elif hay lsof; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+ROUTER=$(docker ps --filter name=ddev-router --format '{{.Names}}' 2>/dev/null | head -1)
+if ocupado 80 || ocupado 443; then
+  if [ -n "$ROUTER" ]; then
+    bien "puertos 80/443 en uso por el router de DDEV"
+  else
+    ojo "puertos 80/443 ocupados por otro servicio (apache2, nginx, Valet…): DDEV usará puertos alternativos. Linux: sudo systemctl disable --now apache2 · macOS: sudo apachectl stop, o valet stop"
+  fi
+else
+  bien "puertos 80/443 libres"
+fi
+if [ "$SO" = Linux ]; then
+  W=$(sysctl -n fs.inotify.max_user_watches 2>/dev/null || echo 0)
+  if [ "$W" -ge 524288 ]; then bien "inotify max_user_watches = $W"; else ojo "inotify max_user_watches = $W: bajo para Vite/HMR en proyectos grandes → bash setup.sh"; fi
+fi
+if hay ddev && docker info >/dev/null 2>&1; then
+  LISTA=$(ddev list -j 2>/dev/null || echo '{"raw":[]}')
+  N=$(printf '%s' "$LISTA" | jq -r '.raw | length' 2>/dev/null || echo 0)
+  R=$(printf '%s' "$LISTA" | jq -r '[.raw[] | select(.status == "running")] | length' 2>/dev/null || echo 0)
+  bien "proyectos DDEV registrados: $N (corriendo: $R)"
+fi
+
+paso "Helpers y kit"
+if hay new-laravel; then
+  bien "helpers en el PATH ($(command -v new-laravel))"
+elif [ -L "$HOME/.local/bin/new-laravel" ] && [ ! -e "$HOME/.local/bin/new-laravel" ]; then
+  ojo "los enlaces de ~/.local/bin apuntan a una carpeta que ya no existe (¿moviste el kit?) → bash setup.sh los rehace"
+else
+  ojo "los helpers no están en el PATH: abre una terminal nueva o vuelve a iniciar sesión (bash setup.sh los enlaza en ~/.local/bin)"
+fi
+LIBRE=$(df -Pk "$HOME" 2>/dev/null | awk 'NR == 2 {printf "%d", $4 / 1024 / 1024}')
+if [ -n "${LIBRE:-}" ]; then
+  if [ "$LIBRE" -ge 10 ]; then bien "espacio libre en $HOME: ${LIBRE} GB"; else ojo "solo ${LIBRE} GB libres en $HOME: las imágenes de Docker ocupan bastante (ddev clean, docker system prune)"; fi
+fi
+if git -C "$RAIZ" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" git -C "$RAIZ" fetch -q 2>/dev/null; then
+    DETRAS=$(git -C "$RAIZ" rev-list --count 'HEAD..@{upstream}' 2>/dev/null || echo 0)
+    if [ "$DETRAS" = 0 ]; then
+      bien "kit al día (rama $(git -C "$RAIZ" branch --show-current 2>/dev/null))"
+    else
+      ojo "el kit tiene $DETRAS commits nuevos → cd $RAIZ && git pull && bash setup.sh"
+    fi
+  else
+    ojo "no pude comprobar si el kit está al día (sin red o sin acceso al remoto)"
+  fi
+fi
+
+if [ -f artisan ]; then
+  paso "Este proyecto ($(basename "$PWD"))"
+  if [ -f .ddev/config.yaml ]; then bien ".ddev/config.yaml presente"; else ojo "sin .ddev/ → adopt-laravel"; fi
+  if [ -f .env ]; then
+    if grep -qE '^APP_KEY=.+' .env; then bien ".env con APP_KEY"; else ojo ".env sin APP_KEY → ddev artisan key:generate"; fi
+    if grep -qE '^DB_HOST=db$' .env; then bien ".env apunta a la BD de DDEV (DB_HOST=db)"; else ojo ".env no apunta a DDEV (DB_HOST debería ser 'db'); DDEV lo corrige al hacer ddev start"; fi
+  else
+    ojo "sin .env → adopt-laravel (o cp .env.example .env)"
+  fi
+  if [ -f composer.lock ]; then
+    if [ ! -f vendor/autoload.php ]; then
+      ojo "sin vendor/ → ddev composer install"
+    elif [ vendor/autoload.php -ot composer.lock ]; then
+      ojo "vendor/ es más viejo que composer.lock (¿git pull reciente?) → ddev composer install"
+    else
+      bien "vendor/ al día con composer.lock"
+    fi
+  fi
+  if [ -f package-lock.json ]; then
+    if [ ! -d node_modules ]; then
+      ojo "sin node_modules/ → ddev npm install"
+    elif [ node_modules/.package-lock.json -ot package-lock.json ]; then
+      ojo "node_modules/ es más viejo que package-lock.json → ddev npm install"
+    else
+      bien "node_modules/ al día con package-lock.json"
+    fi
+  fi
+  if ls vite.config.* >/dev/null 2>&1; then
+    if grep -q DDEV_PRIMARY_URL_WITHOUT_PORT vite.config.*; then
+      bien "Vite configurado para DDEV"
+    else
+      ojo "vite.config sin la configuración de DDEV: el HMR no llegará al navegador (README → npm y Vite)"
+    fi
+  fi
+  if [ -f .ddev/config.yaml ] && hay ddev && docker info >/dev/null 2>&1; then
+    DESC=$(ddev describe -j 2>/dev/null || echo '{}')
+    ESTADO=$(printf '%s' "$DESC" | jq -r '.raw.status // "desconocido"' 2>/dev/null)
+    if [ "$ESTADO" = running ]; then
+      bien "proyecto corriendo: $(printf '%s' "$DESC" | jq -r '.raw.primary_url // ""')"
+    else
+      ojo "proyecto $ESTADO → ddev start"
+    fi
+  fi
+  if [ -f .vscode/launch.json ]; then bien "Xdebug listo para VS Code (.vscode/launch.json)"; fi
+fi
+
+echo
+if [ "$MAL" -gt 0 ]; then
+  echo "✖ $MAL problema(s) que corregir. Los ⚠ son avisos."
+  exit 1
+fi
+echo "✔ Todo en orden. Los ⚠, si los hay, son avisos."
