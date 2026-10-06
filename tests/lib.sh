@@ -29,7 +29,9 @@ resumen() {
   echo "  $((CASOS - FALLOS))/$CASOS ok"
   [ "$FALLOS" -eq 0 ]
 }
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/kit-test.XXXXXX")
+# ruta normalizada con `cd && pwd`, como la imprimen los helpers: en macOS TMPDIR
+# termina en "/" y mktemp devolvería "…/T//kit-test.…", que no coincidiría
+TMP=$(cd -- "$(mktemp -d "${TMPDIR:-/tmp}/kit-test.XXXXXX")" && pwd)
 trap 'rm -rf "$TMP"' EXIT
 # shellcheck disable=SC2034 # la usan los archivos de pruebas que cargan este
 RAIZ=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)

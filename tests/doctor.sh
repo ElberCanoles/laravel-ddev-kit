@@ -76,11 +76,25 @@ caso "detecta vite.config sin DDEV"
 assert_contiene "$SALIDA" "vite.config sin la configuración de DDEV"
 caso "detecta el proyecto detenido"
 assert_contiene "$SALIDA" "proyecto stopped → ddev start"
+printf 'APP_KEY=base64:x\nDB_HOST="db"\n' >.env # DDEV escribe el valor entre comillas
 touch vendor/autoload.php
 sleep 1 && touch vendor/autoload.php
 SALIDA=$(PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/kit-doctor" 2>&1)
+caso "acepta DB_HOST=\"db\" con comillas, como lo escribe DDEV"
+assert_contiene "$SALIDA" "✔ .env apunta a la BD de DDEV"
 caso "vendor/ al día cuando autoload es más nuevo que el lock"
 assert_contiene "$SALIDA" "✔ vendor/ al día"
+# Composer no reescribe autoload.php si no cambió, pero sí installed.json
+mkdir -p vendor/composer
+touch -t 202001010000 vendor/autoload.php
+sleep 1 && touch composer.lock && sleep 1 && touch vendor/composer/installed.json
+SALIDA=$(PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/kit-doctor" 2>&1)
+caso "vendor/ al día si installed.json es más nuevo aunque autoload no lo sea"
+assert_contiene "$SALIDA" "✔ vendor/ al día"
+touch -t 202001010000 vendor/composer/installed.json
+SALIDA=$(PATH="$TMP/bin:$PATH" bash "$RAIZ/bin/kit-doctor" 2>&1)
+caso "avisa vendor/ viejo si autoload e installed.json son más viejos que el lock"
+assert_contiene "$SALIDA" "vendor/ es más viejo que composer.lock"
 
 echo "ayuda"
 SALIDA=$(bash "$RAIZ/bin/kit-doctor" --help 2>&1)

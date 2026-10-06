@@ -5,6 +5,23 @@ según [SemVer](https://semver.org/lang/es/).
 
 ## Sin publicar
 
+### Corregido
+
+- `setup-macos.sh`: tras instalar el cask, `open -a Docker` (u `OrbStack`) podía
+  fallar con «Unable to find application named 'Docker'» porque LaunchServices
+  aún no registraba la app recién copiada. Se abre por ruta
+  (`/Applications/Docker.app`).
+- `kit-doctor` avisaba «.env no apunta a DDEV» en todo proyecto gestionado por
+  DDEV: buscaba `DB_HOST=db` y DDEV escribe `DB_HOST="db"` con comillas.
+- `kit-doctor` daba «vendor/ es más viejo que composer.lock» tras un
+  `composer install` sin cambios (Composer no reescribe `autoload.php` si su
+  contenido no cambió); ahora mira también `vendor/composer/installed.json`.
+- `kit-doctor` en macOS: el aviso de Docker caído empieza igual que en Linux
+  («el daemon no responde → …»).
+- Pruebas: `tests/lib.sh` normaliza la carpeta temporal; en macOS `TMPDIR`
+  termina en `/` y `backup.sh`, `restore.sh` y `doctor.sh` fallaban al comparar
+  rutas.
+
 ## [0.3.0] - 2026-09-03
 
 Starter kits y motores de base de datos en `new-laravel`, `restore-projects`

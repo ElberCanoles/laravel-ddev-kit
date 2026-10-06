@@ -79,7 +79,7 @@ if hay docker; then
   elif [ "$SO" = Linux ]; then
     mal "el daemon no responde → sudo systemctl start docker (si acabas de instalar, cierra sesión y vuelve a entrar)"
   else
-    mal "Docker no responde → abre Docker Desktop u OrbStack, o colima start"
+    mal "el daemon no responde → abre Docker Desktop u OrbStack, o colima start"
   fi
 fi
 
@@ -166,14 +166,17 @@ if [ -f artisan ]; then
   if [ -f .ddev/config.yaml ]; then bien ".ddev/config.yaml presente"; else ojo "sin .ddev/ → adopt-laravel"; fi
   if [ -f .env ]; then
     if grep -qE '^APP_KEY=.+' .env; then bien ".env con APP_KEY"; else ojo ".env sin APP_KEY → ddev artisan key:generate"; fi
-    if grep -qE '^DB_HOST=db$' .env; then bien ".env apunta a la BD de DDEV (DB_HOST=db)"; else ojo ".env no apunta a DDEV (DB_HOST debería ser 'db'); DDEV lo corrige al hacer ddev start"; fi
+    # DDEV escribe los valores entre comillas (DB_HOST="db"); el kit, sin ellas
+    if grep -qE '^DB_HOST="?db"?$' .env; then bien ".env apunta a la BD de DDEV (DB_HOST=db)"; else ojo ".env no apunta a DDEV (DB_HOST debería ser 'db'); DDEV lo corrige al hacer ddev start"; fi
   else
     ojo "sin .env → adopt-laravel (o cp .env.example .env)"
   fi
   if [ -f composer.lock ]; then
     if [ ! -f vendor/autoload.php ]; then
       ojo "sin vendor/ → ddev composer install"
-    elif [ vendor/autoload.php -ot composer.lock ]; then
+    # Composer no reescribe autoload.php si su contenido no cambió, pero installed.json
+    # sí cambia cuando cambian los paquetes: vendor/ está viejo solo si ambos lo están
+    elif [ vendor/autoload.php -ot composer.lock ] && [ ! vendor/composer/installed.json -nt composer.lock ]; then
       ojo "vendor/ es más viejo que composer.lock (¿git pull reciente?) → ddev composer install"
     else
       bien "vendor/ al día con composer.lock"

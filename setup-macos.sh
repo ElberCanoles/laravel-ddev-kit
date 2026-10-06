@@ -157,14 +157,16 @@ if [ "$INSTALL_DOCKER" = 1 ]; then
         if [ ! -d /Applications/Docker.app ]; then
           brew install --cask docker-desktop || fallo_cask "Docker Desktop"
         fi
-        open -a Docker
+        # por ruta, no por nombre: recién instalada, LaunchServices aún no la conoce
+        # como "Docker" y `open -a Docker` falla con "Unable to find application"
+        open -a /Applications/Docker.app
         aviso "Primera vez: acepta el asistente de Docker Desktop (términos y permisos)."
         ;;
       orbstack)
         if [ ! -d /Applications/OrbStack.app ]; then
           brew install --cask orbstack || fallo_cask "OrbStack"
         fi
-        open -a OrbStack
+        open -a /Applications/OrbStack.app # por ruta, igual que Docker Desktop
         ;;
       colima)
         brew install colima docker
